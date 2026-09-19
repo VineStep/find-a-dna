@@ -2,8 +2,8 @@
 	InventoryController — fills StarterGui.HUD.InventoryPanel.
 
 	The Pet Simulator 99 inventory shape, rendered in this game's own surfacing:
-	header chrome overhanging the panel's top edge (title, a two-cell sort pill, a
-	search field, the close key), a rail overhanging its left edge, then a shelf of
+	header chrome overhanging the panel's top edge (title, a search field, the
+	close key), a rail overhanging its left edge, then a shelf of
 	equipped pets, a divider, and the whole roster as a scrolling grid. Order,
 	copy, icons, rarity colours, column counts and the roster itself all come from
 	ReplicatedStorage.GameConfig.Inventory and GameConfig.Shop.Palette, so a new
@@ -64,26 +64,28 @@ local PANEL_CORNER = 0.045
 local INSET = 0.02        -- scroll inset from the panel edge, of panel WIDTH
 -- The rail overhangs the LEFT edge the way the header overhangs the top, so the
 -- content has to start clear of the half of it that is on the panel.
-local RAIL_W = 0.055      -- of panel width
-local RAIL_X = 0.014      -- rail CENTRE, of panel width: just over half outside
+local RAIL_X = 0.008      -- rail CENTRE, of panel width: just over half outside
 -- The rail's own padding and gap, of its own box. Named rather than inlined
 -- because the capsule's HEIGHT is solved from them below.
 local RAIL_PAD_SIDE = 0.10
 local RAIL_PAD_TB = 0.02
 local RAIL_GAP = 0.012
 -- Starts below the title icon, which hangs off the same corner and is drawn over
--- the rail (ZIndex 62 against 56) if the two are allowed to meet. The TOP is the
--- fixed end; the capsule grows downward from it.
-local RAIL_TOP = 0.22
--- DERIVED, not chosen. A cell is squared by a UIAspectRatioConstraint, so its
--- height is the rail's usable WIDTH converted to panel-height units — and the
--- capsule is however tall it takes to hold #Rail of them plus the gaps. Dropping
--- the two locked cells from eight to six left a quarter of the old fixed 0.75
--- capsule empty below the last icon, which is the bug this replaces.
-local RAIL_CELL = RAIL_W * PANEL_ASPECT * (1 - RAIL_PAD_SIDE * 2)
-local RAIL_H = (#INV.Rail * RAIL_CELL)
-	/ (1 - RAIL_GAP * (#INV.Rail - 1) - RAIL_PAD_TB * 2)
+-- the rail (ZIndex 62 against 56) if the two are allowed to meet.
+local RAIL_TOP = 0.11
+-- The rail runs nearly the panel's full height, so the solve runs the other way
+-- round from before: HEIGHT is the fixed thing, a cell is that height divided by
+-- the roster, and the capsule's WIDTH is whatever makes a cell square. It used to
+-- be width-first, with the height falling out of it — which is why the rail was a
+-- narrow strip of small icons instead of the reference's full-height column.
+local RAIL_H = 0.86
 local RAIL_Y = RAIL_TOP + RAIL_H / 2
+local RAIL_CELL = RAIL_H
+	* (1 - RAIL_GAP * (#INV.Rail - 1) - RAIL_PAD_TB * 2)
+	/ #INV.Rail
+-- Panel-height units back into panel-WIDTH units, then out through the rail's own
+-- side padding. The aspect divide is the whole reason this cannot be a constant.
+local RAIL_W = RAIL_CELL / (PANEL_ASPECT * (1 - RAIL_PAD_SIDE * 2))
 local CONTENT_X = 0.062   -- the scroll's left edge, of panel width
 -- Side inset INSIDE the scroll, of its window width. Tiles are sized to fill the
 -- row exactly, so the outer column's UIStroke — drawn outside the tile's bounds —
@@ -94,7 +96,7 @@ local GUTTER = 0.014      -- of content width
 -- The rarity scribble behind a floating pet, as a fraction of the tile. Under 1:
 -- the strokes are tilted, so their corners swing outside the box they are sized
 -- in, and at 1.0 the widest ones clipped against the neighbouring tile.
-local BLOB_SIZE = 0.84
+local BLOB_SIZE = 0.96
 
 -- The empty shelf slot. Smaller than a pet cell, with a short thick cross built
 -- from two bars rather than a "+" glyph.
@@ -117,8 +119,8 @@ local HEADER_GAP = 0.03
 -- placeHeader().
 local TOPBAR_MARGIN = 6
 -- The 44px tap floor, the one other pixel figure in this file. The close button
--- already carries it in StarterGui; the sort pill and the search field are the
--- only other things here that can be pressed or typed into.
+-- already carries it in StarterGui; the search field is the only other thing
+-- here that can be typed into.
 local MIN_TAP_PX = 44
 
 ------------------------------------------------------------------------- data
@@ -160,10 +162,12 @@ if banner then banner.Visible = false end
 local close = kit.close
 
 --------------------------------------------------------------------- the rail
--- A white rounded column overhanging the panel's left edge, eight square icon
--- tiles down it. Only RailSelected has anything behind it — the other seven are
--- inert ON PURPOSE, because there is nothing to show yet, so they are Frames and
--- not buttons. A dead button that pops when you press it is worse than a label.
+-- A white capsule overhanging the panel's left edge, running nearly its full
+-- height, with one round icon cell per Rail entry. Every cell is inert ON
+-- PURPOSE — there is nothing behind any of them yet — so they are Frames and not
+-- buttons, and none is drawn as selected. A dead button that pops when you press
+-- it is worse than a label, and a highlight on one of six cells that all do
+-- nothing is worse still.
 local rail = Instance.new("Frame")
 rail.Name = "Rail"
 rail.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -212,40 +216,17 @@ for i, entry in ipairs(INV.Rail) do
 	local ar = Instance.new("UIAspectRatioConstraint")
 	ar.AspectRatio = 1
 	ar.Parent = tile
-	kit:corner(tile, 0.24)
+	-- CIRCLES. A square cell inside a capsule is two different corner radii in one
+	-- control; round cells in a round column is one shape repeated.
+	kit:corner(tile, 0.5)
 
-	local selected = i == (INV.RailSelected or 1)
-	if entry.Locked then
-		-- Desaturated, which on a greyscale rail means simply darker and duller.
-		tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.58)
-	elseif selected then
-		-- Visibly lighter than its neighbours, and the only one with an outline.
-		tile.BackgroundColor3 = WHITE
-		kit:stroke(tile, P.Ink, 1.8)
-	else
-		-- Paler than it was. These are inert cells behind a selected one; at 0.80
-		-- they were dark enough to compete with it for the eye.
-		tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.88)
-	end
+	-- NO SELECTED STATE. Every cell is drawn the same. The highlight said "you are
+	-- looking at Pets" while the other five cells did nothing at all when pressed,
+	-- which promised navigation this panel does not have. When a rail cell can
+	-- actually change what the grid shows, the highlight comes back with it.
+	tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.88)
 
-	if entry.Locked then
-		-- The reference puts a padlock here. The client's own texture set has no
-		-- padlock and uploads 403 in this group-owned place, so it is a "?" — see
-		-- the note in GameConfig.Inventory.Rail.
-		local q = Instance.new("TextLabel")
-		q.Name = "Locked"
-		q.BackgroundTransparency = 1
-		q.AnchorPoint = Vector2.new(0.5, 0.5)
-		q.Position = UDim2.fromScale(0.5, 0.5)
-		q.Size = UDim2.fromScale(0.8, 0.7)
-		q.Text = "?"
-		q.TextColor3 = P.Ink:Lerp(P.Panel, 0.22)
-		q.FontFace = FONT
-		q.TextScaled = true
-		q.ZIndex = 58
-		kit:capText(q, 0.42)
-		q.Parent = tile
-	elseif entry.Icon then
+	if entry.Icon then
 		local im = Instance.new("ImageLabel")
 		im.Name = "Icon"
 		im.BackgroundTransparency = 1
@@ -266,125 +247,18 @@ for i, entry in ipairs(INV.Rail) do
 	tile.Parent = rail
 end
 
----------------------------------------------------------------- the sort pill
--- The reference's centre pill is two icon cells, a padlock and a grid mark.
--- Neither glyph is in the client's own texture set and uploads do not work here,
--- so this is TYPE — and unlike the reference's it actually sorts the main grid.
--- Same silhouette, one less lie. Labels and keys: GameConfig.Inventory.Sorts.
-local sortKey = INV.Sorts[1].Key
-local sortCells = {}
-local rebuildGrid -- forward declaration; the cells call it
+-------------------------------------------------------------------- sorting
+-- The header's two-key sort pill is GONE. It was a POWER / A-Z segmented control
+-- sitting between the title and the search field, and it read as clutter there
+-- however it was styled — the reference puts two small icon cells in that slot,
+-- not a pair of words, and this panel has neither glyph.
+--
+-- The order it chose is kept as the only order: power descending. Restoring the
+-- control means putting a Sorts table back in GameConfig.Inventory and making
+-- this a variable again; nothing else in this file reads it.
+local sortKey = "Power"
 
-local pill = Instance.new("Frame")
-pill.Name = "SortPill"
-pill.AnchorPoint = Vector2.new(0.5, 0.5)
-pill.Position = UDim2.fromScale(0.50, 0)
--- Narrower and a touch shorter than it was. At 0.24 x 0.115 the two keys sat in
--- a slab as wide as the search field beside it, which gave a two-word control the
--- visual weight of the panel's title.
-pill.Size = UDim2.fromScale(0.205, 0.108)
--- The dark navy of the reference, mixed from the palette rather than picked: Ink
--- is the darkest thing here and BodyText the navy, so the blend between them is
--- the only navy that cannot drift when either is re-tuned.
-pill.BackgroundColor3 = P.Ink:Lerp(P.BodyText, 0.6)
-pill.BorderSizePixel = 0
-pill.ZIndex = 58
-kit:corner(pill, 0.5) -- a true capsule, like the reference's
-kit:stroke(pill, P.Ink, 2.2)
-do
-	-- The tap floor. Two cells side by side in a pill this short are otherwise
-	-- ~18px tall on the smallest phone preset.
-	local c = Instance.new("UISizeConstraint")
-	c.MinSize = Vector2.new(0, MIN_TAP_PX)
-	c.Parent = pill
-end
-pill.Parent = panel
-
-local pillPad = Instance.new("UIPadding")
-pillPad.PaddingTop = UDim.new(0.10, 0)
-pillPad.PaddingBottom = UDim.new(0.10, 0)
-pillPad.PaddingLeft = UDim.new(0.02, 0)
-pillPad.PaddingRight = UDim.new(0.02, 0)
-pillPad.Parent = pill
-
-local pillRow = Instance.new("UIListLayout")
-pillRow.FillDirection = Enum.FillDirection.Horizontal
-pillRow.HorizontalAlignment = Enum.HorizontalAlignment.Center
-pillRow.VerticalAlignment = Enum.VerticalAlignment.Center
-pillRow.SortOrder = Enum.SortOrder.LayoutOrder
-pillRow.Parent = pill
-
-local function paintSorts()
-	for _, c in ipairs(sortCells) do
-		local on = c.key == sortKey
-		-- Lifted, not tinted: the active cell gets the raised plate and sits a
-		-- couple of percent higher, which reads on touch where a hover never does.
-		c.plate.Visible = on
-		-- Dark ON the white plate, muted white off it. Both are readable, which
-		-- the old white-on-grey / white-on-navy pair was not.
-		c.label.TextColor3 = on and P.Ink:Lerp(P.BodyText, 0.5) or WHITE
-		c.label.TextTransparency = on and 0 or 0.42
-		c.label.Position = UDim2.fromScale(0.5, on and 0.44 or 0.5)
-	end
-end
-
-for i, entry in ipairs(INV.Sorts) do
-	local b = Instance.new("TextButton")
-	b.Name = entry.Key
-	b.Text = ""
-	b.AutoButtonColor = false
-	b.BackgroundTransparency = 1
-	b.LayoutOrder = i
-	b.Size = UDim2.fromScale(1 / #INV.Sorts, 1)
-	b.ZIndex = 59
-
-	local plate = Instance.new("Frame")
-	plate.Name = "Plate"
-	plate.AnchorPoint = Vector2.new(0.5, 0.5)
-	-- Sits a touch above centre, so the pill's own floor shows below it and the
-	-- cell reads as a key standing proud of the plate rather than as a fill.
-	plate.Position = UDim2.fromScale(0.5, 0.44)
-	plate.Size = UDim2.fromScale(0.94, 1)
-	-- WHITE, and the label under it goes dark. It was a mid-grey plate carrying
-	-- white outlined type, which is two low-contrast greys stacked — the selected
-	-- key was barely distinguishable from the unselected one, and the outline made
-	-- the whole pill look smudged. A selected key in a segmented control should be
-	-- the brightest thing in it.
-	plate.BackgroundColor3 = WHITE
-	plate.BorderSizePixel = 0
-	plate.ZIndex = 59
-	kit:corner(plate, 0.42)
-	UIKit.gloss(plate, 0.5, 0.42, 0.86)
-	plate.Parent = b
-
-	local label = Instance.new("TextLabel")
-	label.Name = "Label"
-	label.BackgroundTransparency = 1
-	label.AnchorPoint = Vector2.new(0.5, 0.5)
-	label.Position = UDim2.fromScale(0.5, 0.5)
-	label.Size = UDim2.fromScale(0.84, 0.54)
-	label.Text = entry.Label
-	label.FontFace = FONT
-	label.TextScaled = true
-	label.ZIndex = 60
-	kit:capText(label, 0.26)
-	-- NO outline. An ink contour on 11px type inside a dark pill is most of the
-	-- glyph, and it was what made the pill read as cheap. Colour alone separates
-	-- the two states now: navy on the white plate, muted white off it.
-	label.Parent = b
-
-	UIKit.audible(b)
-	b.Activated:Connect(function()
-		if sortKey == entry.Key then return end
-		sortKey = entry.Key
-		paintSorts()
-		rebuildGrid()
-	end)
-
-	b.Parent = pill
-	table.insert(sortCells, { key = entry.Key, plate = plate, label = label })
-end
-paintSorts()
+local rebuildGrid -- forward declaration; the search box calls it
 
 -------------------------------------------------------------- the search field
 local search = Instance.new("Frame")
@@ -612,9 +486,15 @@ end)
 local SCRIBBLE_STROKES = 11
 -- Of the scribble box. Bars are far taller than the gap between them, so they
 -- overlap heavily and the middle fills in solid the way a real scribble does.
-local SCRIBBLE_BAR_H = 0.17
-local SCRIBBLE_TILT = 7          -- degrees, alternating
-local SCRIBBLE_FADE = 0.55
+local SCRIBBLE_BAR_H = 0.16
+local SCRIBBLE_TILT = 6          -- degrees, alternating
+-- The whole patch is tilted, which is what makes the strokes read as diagonal
+-- hatching rather than as a stack of horizontal lines.
+local SCRIBBLE_ANGLE = -32
+local SCRIBBLE_FADE = 0.5
+-- Bars must stay inside the box: a CanvasGroup CLIPS its descendants to its own
+-- bounds, and a scribble clipped flat on one side stops being a scribble.
+local SCRIBBLE_MAX_W = 0.84
 
 local scribbleCache = {}
 
@@ -622,9 +502,17 @@ local function makeScribble(colour)
 	local cached = scribbleCache[colour]
 	if cached then return cached:Clone() end
 
-	local box = Instance.new("Frame")
+	-- A CANVASGROUP, not a Frame. The bars have to overlap for this to read as a
+	-- scribble, and semi-transparent bars that overlap COMPOUND — every crossing
+	-- came out darker than the strokes around it, so the patch read as a stack of
+	-- separate translucent sticks instead of one scribbled-in shape. A CanvasGroup
+	-- renders its children to one buffer first and applies GroupTransparency to
+	-- the result, so the bars are opaque to each other and the fade lands once.
+	local box = Instance.new("CanvasGroup")
 	box.Name = "Scribble"
 	box.BackgroundTransparency = 1
+	box.GroupTransparency = SCRIBBLE_FADE
+	box.Rotation = SCRIBBLE_ANGLE
 
 	for i = 1, SCRIBBLE_STROKES do
 		-- 0 at the top, 1 at the bottom.
@@ -632,18 +520,20 @@ local function makeScribble(colour)
 		-- Bars are longest through the middle and short at the ends, which is what
 		-- gives the patch a blob silhouette instead of a rectangle. sin() over the
 		-- half-turn is that shape with no table of magic widths.
-		local w = 0.34 + 0.66 * math.sin(t * math.pi)
+		local w = SCRIBBLE_MAX_W * (0.40 + 0.60 * math.sin(t * math.pi))
 		-- Deterministic wobble, not math.random: the scribble must be the same
 		-- every time the panel opens, or it flickers into a new shape per rebuild.
-		local jitter = math.sin(i * 2.399) * 0.06
+		local jitter = math.sin(i * 2.399) * 0.04
 
 		local bar = Instance.new("Frame")
 		bar.Name = "S" .. i
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
-		bar.Position = UDim2.fromScale(0.5 + jitter, 0.07 + t * 0.86)
+		-- Kept clear of the top and bottom edges by half a bar, so the rounded
+		-- ends are not shaved off by the canvas.
+		bar.Position = UDim2.fromScale(0.5 + jitter, 0.12 + t * 0.76)
 		bar.Size = UDim2.fromScale(w, SCRIBBLE_BAR_H)
 		bar.BackgroundColor3 = colour
-		bar.BackgroundTransparency = SCRIBBLE_FADE
+		bar.BackgroundTransparency = 0
 		bar.BorderSizePixel = 0
 		-- Alternating tilt is what makes it read as one continuous back-and-forth
 		-- stroke rather than as a stack of separate lines.
@@ -1075,7 +965,6 @@ local headerItems = {
 	-- get a vote, or the whole header would be pushed a fifth of the way down the
 	-- panel to keep a rotated icon off the topbar.
 	{ obj = kit.titleIcon, x = 0.018, y = 0, measure = false },
-	{ obj = pill, x = 0.50, y = 0 },
 	{ obj = search, x = 0.905, y = 0 },
 	{ obj = close, x = 0.978, y = kit.closeY },
 }

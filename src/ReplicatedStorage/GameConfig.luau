@@ -303,24 +303,16 @@ return {
 		-- stops being tappable.
 		MinCell = 64,
 
-		-- The header pill, two cells. The reference draws a padlock and a grid mark.
-		-- Neither glyph exists in the client's own texture set, and uploads do not
-		-- work in this place, so the pill is TYPE instead of icons — and it actually
-		-- sorts rather than being decoration. Same silhouette, one less lie.
-		Sorts = {
-			{ Key = "Power", Label = "POWER" },
-			{ Key = "Name",  Label = "A-Z" },
-		},
-
 		-- The left rail, top to bottom, overhanging the panel's left edge. The cell
 		-- height is DERIVED from how many entries are here, so adding or removing
 		-- one needs no other change.
 		--
-		-- The two Locked "?" placeholders are gone. A Locked tile drew desaturated
-		-- with a "?" standing in for a padlock this place has no glyph for, and two
-		-- question marks in a column of six icons read as missing art rather than
-		-- as locked content. The Locked field is still honoured below if a real
-		-- padlock ever arrives.
+		-- The two Locked "?" placeholders are gone, and so is the Locked handling
+		-- that drew them: a "?" standing in for a padlock this place has no glyph
+		-- for read as missing art rather than as locked content.
+		--
+		-- No cell is drawn as selected either. All six are inert, and a highlight
+		-- on one of them promised navigation the panel does not have.
 		Rail = {
 			{ Name = "Pets",    Icon = "rbxassetid://128442519585600" },
 			{ Name = "Bag",     Icon = "rbxasset://textures/ui/Backpack/Backpack.png" },
@@ -329,9 +321,6 @@ return {
 			{ Name = "Boosts",  Icon = "rbxassetid://97906064855506" },
 			{ Name = "Eggs",    Icon = "rbxassetid://7106672194" },
 		},
-		-- Which rail tile starts selected. Only this one has content behind it; the
-		-- rest are inert on purpose, because there is nothing to show yet.
-		RailSelected = 1,
 
 		-- Rarity drives a tile's gradient and nothing else. Reusing the shop's five
 		-- pairs rather than inventing a sixth is what keeps the two panels one family.

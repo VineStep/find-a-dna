@@ -63,7 +63,17 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   tilted rounded bars (`makeScribble`, built once per rarity and cloned) because
   it cannot be fetched: `search_asset` returns only Models for any texture query,
   uploads 403, and `generate_texture` needs a mesh selection. A soft-edged circle
-  image was tried here and rejected — a clean circle is a dot, not a scribble. An earlier pass gave each one a bevelled shop-style tile
+  image was tried here and rejected — a clean circle is a dot, not a scribble.
+  The bars are **opaque inside a `CanvasGroup`**, not semi-transparent:
+  overlapping translucent frames compound, and every crossing came out darker
+  than its neighbours. The group carries the fade and the diagonal rotation.
+- **The header has no sort control.** A POWER / A-Z pill sat between the title
+  and the search field and read as clutter however it was styled. The order it
+  chose is now the only order (power descending). Restoring it means putting a
+  `Sorts` table back in `GameConfig.Inventory`; nothing else reads `sortKey`.
+- **No rail cell is drawn as selected.** All six are inert, and a highlight on
+  one of them promised navigation the panel does not have. It comes back when a
+  cell can actually change what the grid shows. An earlier pass gave each one a bevelled shop-style tile
   and `InventoryPanel` the standard studded sheet; both were rejected — eight
   saturated plates in a row is a wall of colour and the pet stops being the
   subject. `HUDController.STUDS_OVERRIDE` carries `InventoryPanel = { Skip = true }`.
