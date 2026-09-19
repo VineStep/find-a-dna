@@ -336,31 +336,42 @@ return {
 			Epic = PINK, Legendary = GOLD,
 		},
 
-		-- What a pet with no Icon of its own draws.
+		-- What a pet with no Model of its own draws.
 		PetIcon = "rbxassetid://128442519585600",
+
+		-- Pets render as the REAL MODEL in a ViewportFrame, not as flat art. This
+		-- place is group-owned, so uploaded images 403 and the Creator Store has no
+		-- pet set worth the name — but the place already contains six rigged pets,
+		-- and a viewport of the actual thing is what PS99 does anyway. Model names
+		-- index ReplicatedStorage.PetModels, cloned from Workspace.Pets by hand.
+		-- A pet with no Model falls back to PetIcon as a flat image.
+		-- Adding a pet model: clone it into PetModels, anchor every part, set a
+		-- PrimaryPart, PivotTo(CFrame.new()). The viewport frames it off its own
+		-- bounding box, so size does not matter — Bigfoot is 25 studs and ghostly 4.
+		PetModelFolder = "PetModels",
 
 		-- One entry is one STACK. Power is the number across the tile's bottom; omit
 		-- it and the tile draws "??", which is what the reference does for its rarest
 		-- pet. Count > 1 draws the xN badge. Equipped fills the shelf, in this order.
 		Pets = {
-			{ Name = "Prime Helix",   Rarity = "Legendary", Count = 1,  Equipped = true },
-			{ Name = "Solar Strand",  Rarity = "Legendary", Power = 320, Count = 2,  Equipped = true, Icon = "rbxassetid://8002852553" },
-			{ Name = "Splice Slime",  Rarity = "Common",    Power = 313, Count = 11, Equipped = true },
-			{ Name = "Gel Node",      Rarity = "Common",    Power = 306, Count = 4,  Equipped = true },
-			{ Name = "Bit Beetle",    Rarity = "Uncommon",  Power = 298, Count = 2,  Equipped = true, Icon = "rbxassetid://7106672194" },
-			{ Name = "Neon Nucleus",  Rarity = "Rare",      Power = 287, Count = 1,  Equipped = true, Icon = "rbxassetid://743807896" },
-			{ Name = "Chrome Cell",   Rarity = "Rare",      Power = 271, Count = 3,  Equipped = true, Icon = "rbxassetid://228648908" },
-			{ Name = "Mud Mitosis",   Rarity = "Uncommon",  Power = 264, Count = 1,  Equipped = true },
-			{ Name = "Plasma Pup",    Rarity = "Epic",      Power = 250, Count = 1,  Equipped = true, Icon = "rbxassetid://743807522" },
-			{ Name = "Vial Vermin",   Rarity = "Common",    Power = 222, Count = 5,  Icon = "rbxassetid://2795768574" },
-			{ Name = "Petri Pal",     Rarity = "Common",    Power = 202, Count = 2 },
-			{ Name = "Clone Cluster", Rarity = "Uncommon",  Power = 172, Count = 1,  Icon = "rbxassetid://13249575568" },
-			{ Name = "Beaker Bat",    Rarity = "Uncommon",  Power = 150, Count = 3 },
-			{ Name = "Agar Ape",      Rarity = "Rare",      Power = 128, Count = 1,  Icon = "rbxassetid://113086469759355" },
-			{ Name = "Enzyme Egg",    Rarity = "Common",    Power = 96,  Count = 9,  Icon = "rbxassetid://7106672194" },
-			{ Name = "Slop Sprout",   Rarity = "Common",    Power = 85,  Count = 2 },
-			{ Name = "Test Tube Tot", Rarity = "Common",    Power = 62,  Count = 4,  Icon = "rbxassetid://743807896" },
-			{ Name = "Base Pair",     Rarity = "Common",    Power = 37,  Count = 1 },
+			{ Name = "Prime Helix",   Rarity = "Legendary", Count = 1,  Equipped = true, Model = "ghostly" },
+			{ Name = "Solar Strand",  Rarity = "Legendary", Power = 320, Count = 2,  Equipped = true, Model = "Bigfoot" },
+			{ Name = "Splice Slime",  Rarity = "Common",    Power = 313, Count = 11, Equipped = true, Model = "Chicken" },
+			{ Name = "Gel Node",      Rarity = "Common",    Power = 306, Count = 4,  Equipped = true, Model = "Chicken" },
+			{ Name = "Bit Beetle",    Rarity = "Uncommon",  Power = 298, Count = 2,  Equipped = true, Model = "Scorpion" },
+			{ Name = "Neon Nucleus",  Rarity = "Rare",      Power = 287, Count = 1,  Equipped = true, Model = "Cat" },
+			{ Name = "Chrome Cell",   Rarity = "Rare",      Power = 271, Count = 3,  Equipped = true, Model = "Cat" },
+			{ Name = "Mud Mitosis",   Rarity = "Uncommon",  Power = 264, Count = 1,  Equipped = true, Model = "Dog" },
+			{ Name = "Plasma Pup",    Rarity = "Epic",      Power = 250, Count = 1,  Equipped = true, Model = "Dog" },
+			{ Name = "Vial Vermin",   Rarity = "Common",    Power = 222, Count = 5, Model = "Scorpion" },
+			{ Name = "Petri Pal",     Rarity = "Common",    Power = 202, Count = 2, Model = "Chicken" },
+			{ Name = "Clone Cluster", Rarity = "Uncommon",  Power = 172, Count = 1, Model = "ghostly" },
+			{ Name = "Beaker Bat",    Rarity = "Uncommon",  Power = 150, Count = 3, Model = "ghostly" },
+			{ Name = "Agar Ape",      Rarity = "Rare",      Power = 128, Count = 1, Model = "Bigfoot" },
+			{ Name = "Enzyme Egg",    Rarity = "Common",    Power = 96,  Count = 9, Model = "Chicken" },
+			{ Name = "Slop Sprout",   Rarity = "Common",    Power = 85,  Count = 2, Model = "Dog" },
+			{ Name = "Test Tube Tot", Rarity = "Common",    Power = 62,  Count = 4, Model = "Cat" },
+			{ Name = "Base Pair",     Rarity = "Common",    Power = 37,  Count = 1, Model = "Chicken" },
 		},
 	},
 }

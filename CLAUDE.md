@@ -57,6 +57,15 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   `assetFetchFailedNoExperienceAccess`. Reuse the verified free Creator Store ids
   already in GameConfig. `search_asset` wrongly reports `creatorType: User` for
   this place — don't trust it.
+- **Pet art is a `ViewportFrame` of the real model, not a 2D icon.** That is the
+  way around the upload block: `ReplicatedStorage.PetModels` holds six rigged
+  pets cloned from `Workspace.Pets` (`Chicken`, `Dog`, `Cat`, `Scorpion`,
+  `Bigfoot`, `ghostly`), and a pet entry names one in `Model`. All six face
+  **-Z**; a pet whose model faces elsewhere sets `Yaw` (degrees about Y) rather
+  than getting its own camera. A viewport ignores the place's Lighting and starts
+  near black, so it sets its own `Ambient`. Do not `PivotTo` a staged model —
+  framing is world-space off `GetBoundingBox()`, and resetting the pivot tips
+  upright rigs onto their backs.
 - **ContentProvider caches asset failures for the whole session.** After granting
   access, a re-probe still returns Failure with no network request. Only a Studio
   restart clears it.

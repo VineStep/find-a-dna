@@ -417,6 +417,86 @@ list.SortOrder = Enum.SortOrder.LayoutOrder
 list.Parent = scroll
 
 ------------------------------------------------------------------------- tiles
+-- A pet's art is the REAL MODEL in a ViewportFrame, not flat 2D. Uploads 403 in
+-- this group-owned place and the Creator Store has no pet set worth using, but
+-- the place already ships six rigged pets — and a viewport of the actual model is
+-- what the reference game does anyway.
+--
+-- Framing is one rule for every pet: take the model's own bounding box, point a
+-- fixed three-quarter camera at its centre, and back off far enough that the
+-- longest axis fits the frame. That is why a 25-stud Bigfoot and a 4-stud ghostly
+-- come out the same size on the tile with no per-pet tuning.
+local PET_MODELS = ReplicatedStorage:WaitForChild(INV.PetModelFolder)
+-- Looking down and across, the angle that reads as "a pet posing for its portrait"
+-- rather than a side elevation. Y is lifted so we see a little of the top.
+--
+-- NEGATIVE Z is what puts the camera in FRONT of the pet. All six models in
+-- PetModels face -Z, so the first pass -- which used +Z -- rendered every tile as
+-- the back of a pet's head, and the ones without a tail read as featureless
+-- blobs. A pet whose model faces elsewhere sets Yaw in GameConfig (degrees about
+-- Y) rather than getting its own camera.
+local PET_VIEW_DIR = Vector3.new(-0.6, 0.35, -1).Unit
+local PET_FOV = 30
+-- Slack around the fitted axis. Barely over 1: these are 70px tiles and a pet that
+-- does not fill its frame reads as a bug, not as breathing room.
+local PET_PAD = 1.06
+-- Viewport lighting is NOT the place's lighting, and it starts near black. These
+-- pets are dark-textured, so the viewport has to supply nearly all of the light
+-- itself or every tile renders a silhouette.
+local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
+
+-- ponytail: one ViewportFrame per tile, ~28 of them on an open panel. Fine at this
+-- roster size; if the grid ever pages past a few hundred, render each model once to
+-- a pooled viewport and reuse it rather than giving every tile its own camera.
+local function makePetIcon(pet)
+	local source = pet.Model and PET_MODELS:FindFirstChild(pet.Model)
+	if not source then
+		-- No model named, or the folder does not have it: fall back to flat art
+		-- rather than drawing an empty box.
+		local img = Instance.new("ImageLabel")
+		img.Name = "Icon"
+		img.BackgroundTransparency = 1
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Image = pet.Icon or INV.PetIcon
+		img.ScaleType = Enum.ScaleType.Fit
+		return img
+	end
+
+	local vp = Instance.new("ViewportFrame")
+	vp.Name = "Icon"
+	vp.BackgroundTransparency = 1
+	vp.AnchorPoint = Vector2.new(0.5, 0.5)
+	-- The tile's own gradient is the background; the model must not be lit by the
+	-- place's Lighting or it picks up the world's time of day inside a GUI.
+	vp.Ambient = PET_AMBIENT
+	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.5, -1, -0.5)
+
+	local model = source:Clone()
+	model.Parent = vp
+
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = PET_FOV
+	local centre, size = model:GetBoundingBox()
+	-- The LONGEST AXIS, not the box's diagonal. Fitting the diagonal is what
+	-- guarantees nothing ever clips, and it is also why the first pass rendered
+	-- every pet at a third of its frame: the diagonal of a 25x15x17 box is 33, so
+	-- the camera backs off far enough to frame a sphere the pet never fills.
+	-- Fitting the longest axis fills the tile, and the padding above covers the
+	-- little the three-quarter angle adds.
+	local radius = math.max(size.X, size.Y, size.Z) / 2
+	local dist = (radius * PET_PAD) / math.tan(math.rad(PET_FOV / 2))
+	local dir = PET_VIEW_DIR
+	if pet.Yaw then
+		dir = CFrame.Angles(0, math.rad(pet.Yaw), 0) * dir
+	end
+	cam.CFrame = CFrame.lookAt(centre.Position + dir * dist, centre.Position)
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	return vp
+end
+
 -- The departure from the reference, and the whole point of it: a pet is not art
 -- floating on the panel, it is art on a moulded plastic tile — the item gradient
 -- for its rarity through bevel(), an ink outline, a gloss on top, the power
@@ -455,15 +535,10 @@ local function makeTile(pet, order)
 	-- the icon is the subject.
 	UIKit.gloss(tile, 0.46, TILE_CORNER, 0.74)
 
-	local icon = Instance.new("ImageLabel")
-	icon.Name = "Icon"
-	icon.BackgroundTransparency = 1
-	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	local icon = makePetIcon(pet)
 	-- High in the tile: the power number owns the bottom quarter.
 	icon.Position = UDim2.fromScale(0.5, 0.41)
 	icon.Size = UDim2.fromScale(0.76, 0.62)
-	icon.Image = pet.Icon or INV.PetIcon
-	icon.ScaleType = Enum.ScaleType.Fit
 	icon.ZIndex = 55
 	icon.Parent = tile
 
