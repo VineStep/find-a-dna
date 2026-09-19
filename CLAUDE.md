@@ -58,9 +58,12 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   already in GameConfig. `search_asset` wrongly reports `creatorType: User` for
   this place — don't trust it.
 - **Pets float; they do not sit on tiles.** The inventory's pets have no plate,
-  no ink outline and no gloss — just a soft-edged circle
-  (`GameConfig.Inventory.PetBlob`) tinted with the rarity colour behind them, on
-  a plain white panel. An earlier pass gave each one a bevelled shop-style tile
+  no ink outline and no gloss — just a **procedural scribble** in the rarity
+  colour behind them, on a plain white panel. The scribble is drawn from ~11
+  tilted rounded bars (`makeScribble`, built once per rarity and cloned) because
+  it cannot be fetched: `search_asset` returns only Models for any texture query,
+  uploads 403, and `generate_texture` needs a mesh selection. A soft-edged circle
+  image was tried here and rejected — a clean circle is a dot, not a scribble. An earlier pass gave each one a bevelled shop-style tile
   and `InventoryPanel` the standard studded sheet; both were rejected — eight
   saturated plates in a row is a wall of colour and the pet stops being the
   subject. `HUDController.STUDS_OVERRIDE` carries `InventoryPanel = { Skip = true }`.

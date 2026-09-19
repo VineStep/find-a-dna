@@ -91,13 +91,17 @@ local CONTENT_X = 0.062   -- the scroll's left edge, of panel width
 -- visible slice of the tile itself out of view. This is the room both need.
 local EDGE = 0.02
 local GUTTER = 0.014      -- of content width
--- The rarity blob behind a floating pet, as a fraction of the tile. OVER 1: the
--- image's soft edge has to run out past the tile's bounds or it reads as a
--- cropped square instead of a blob.
-local BLOB_SIZE = 1.0
--- Faint. It is a tint under the pet, not a plate behind it — at full strength the
--- grid goes back to being eight saturated squares, which is what this replaced.
-local BLOB_FADE = 0.62
+-- The rarity scribble behind a floating pet, as a fraction of the tile. Under 1:
+-- the strokes are tilted, so their corners swing outside the box they are sized
+-- in, and at 1.0 the widest ones clipped against the neighbouring tile.
+local BLOB_SIZE = 0.84
+
+-- The empty shelf slot. Smaller than a pet cell, with a short thick cross built
+-- from two bars rather than a "+" glyph.
+local PLUS_SIZE = 0.80
+local PLUS_CORNER = 0.22
+local PLUS_ARM = 0.50
+local PLUS_THICK = 0.155
 
 -- Entrance stagger: per-tile delay, and the ceiling no tile waits past.
 local ENTRY_STEP = 0.022
@@ -275,15 +279,18 @@ local pill = Instance.new("Frame")
 pill.Name = "SortPill"
 pill.AnchorPoint = Vector2.new(0.5, 0.5)
 pill.Position = UDim2.fromScale(0.50, 0)
-pill.Size = UDim2.fromScale(0.24, 0.115)
+-- Narrower and a touch shorter than it was. At 0.24 x 0.115 the two keys sat in
+-- a slab as wide as the search field beside it, which gave a two-word control the
+-- visual weight of the panel's title.
+pill.Size = UDim2.fromScale(0.205, 0.108)
 -- The dark navy of the reference, mixed from the palette rather than picked: Ink
 -- is the darkest thing here and BodyText the navy, so the blend between them is
 -- the only navy that cannot drift when either is re-tuned.
 pill.BackgroundColor3 = P.Ink:Lerp(P.BodyText, 0.6)
 pill.BorderSizePixel = 0
 pill.ZIndex = 58
-kit:corner(pill, 0.40)
-kit:stroke(pill, P.Ink, 2.6)
+kit:corner(pill, 0.5) -- a true capsule, like the reference's
+kit:stroke(pill, P.Ink, 2.2)
 do
 	-- The tap floor. Two cells side by side in a pill this short are otherwise
 	-- ~18px tall on the smallest phone preset.
@@ -313,7 +320,10 @@ local function paintSorts()
 		-- Lifted, not tinted: the active cell gets the raised plate and sits a
 		-- couple of percent higher, which reads on touch where a hover never does.
 		c.plate.Visible = on
-		c.label.TextTransparency = on and 0 or 0.35
+		-- Dark ON the white plate, muted white off it. Both are readable, which
+		-- the old white-on-grey / white-on-navy pair was not.
+		c.label.TextColor3 = on and P.Ink:Lerp(P.BodyText, 0.5) or WHITE
+		c.label.TextTransparency = on and 0 or 0.42
 		c.label.Position = UDim2.fromScale(0.5, on and 0.44 or 0.5)
 	end
 end
@@ -335,11 +345,16 @@ for i, entry in ipairs(INV.Sorts) do
 	-- cell reads as a key standing proud of the plate rather than as a fill.
 	plate.Position = UDim2.fromScale(0.5, 0.44)
 	plate.Size = UDim2.fromScale(0.94, 1)
-	plate.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.34)
+	-- WHITE, and the label under it goes dark. It was a mid-grey plate carrying
+	-- white outlined type, which is two low-contrast greys stacked — the selected
+	-- key was barely distinguishable from the unselected one, and the outline made
+	-- the whole pill look smudged. A selected key in a segmented control should be
+	-- the brightest thing in it.
+	plate.BackgroundColor3 = WHITE
 	plate.BorderSizePixel = 0
 	plate.ZIndex = 59
-	kit:corner(plate, 0.34)
-	UIKit.gloss(plate, 0.5, 0.34, 0.76)
+	kit:corner(plate, 0.42)
+	UIKit.gloss(plate, 0.5, 0.42, 0.86)
 	plate.Parent = b
 
 	local label = Instance.new("TextLabel")
@@ -349,12 +364,13 @@ for i, entry in ipairs(INV.Sorts) do
 	label.Position = UDim2.fromScale(0.5, 0.5)
 	label.Size = UDim2.fromScale(0.84, 0.54)
 	label.Text = entry.Label
-	label.TextColor3 = WHITE
 	label.FontFace = FONT
 	label.TextScaled = true
 	label.ZIndex = 60
 	kit:capText(label, 0.26)
-	kit:outline(label, 1.8)
+	-- NO outline. An ink contour on 11px type inside a dark pill is most of the
+	-- glyph, and it was what made the pill read as cheap. Colour alone separates
+	-- the two states now: navy on the white plate, muted white off it.
 	label.Parent = b
 
 	UIKit.audible(b)
@@ -575,14 +591,77 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- A pet floats. Behind it sits a soft-edged blob in its rarity colour — the whole
+-- A SCRIBBLE, drawn rather than fetched. A marker scribble is a stack of
+-- overlapping strokes, so that is literally what this builds: rounded bars, each
+-- tilted a little, each a different length and offset, densest through the middle
+-- and tapering at both ends so the silhouette reads as a rough patch.
+--
+-- Drawn because it cannot be fetched. search_asset cannot surface Decals at all
+-- in this place (every query returns Models), uploads 403 because the place is
+-- group-owned, and generate_texture needs a mesh selection. A soft-edged circle
+-- image was tried in its place and was rejected on sight — correctly; a clean
+-- circle is not a scribble, it is a dot.
+--
+-- Built ONCE per rarity and cloned per tile: the arithmetic below is identical
+-- for every pet of a given rarity, and doing it 28 times over is 28 times the
+-- work for the same pixels.
+--
+-- ponytail: ~11 frames a tile, ~300 across an open panel. Fine here (measured at
+-- a locked 60fps); if the grid ever pages past a few hundred tiles, bake one
+-- scribble per rarity into an image and swap this for an ImageLabel.
+local SCRIBBLE_STROKES = 11
+-- Of the scribble box. Bars are far taller than the gap between them, so they
+-- overlap heavily and the middle fills in solid the way a real scribble does.
+local SCRIBBLE_BAR_H = 0.17
+local SCRIBBLE_TILT = 7          -- degrees, alternating
+local SCRIBBLE_FADE = 0.55
+
+local scribbleCache = {}
+
+local function makeScribble(colour)
+	local cached = scribbleCache[colour]
+	if cached then return cached:Clone() end
+
+	local box = Instance.new("Frame")
+	box.Name = "Scribble"
+	box.BackgroundTransparency = 1
+
+	for i = 1, SCRIBBLE_STROKES do
+		-- 0 at the top, 1 at the bottom.
+		local t = (i - 1) / (SCRIBBLE_STROKES - 1)
+		-- Bars are longest through the middle and short at the ends, which is what
+		-- gives the patch a blob silhouette instead of a rectangle. sin() over the
+		-- half-turn is that shape with no table of magic widths.
+		local w = 0.34 + 0.66 * math.sin(t * math.pi)
+		-- Deterministic wobble, not math.random: the scribble must be the same
+		-- every time the panel opens, or it flickers into a new shape per rebuild.
+		local jitter = math.sin(i * 2.399) * 0.06
+
+		local bar = Instance.new("Frame")
+		bar.Name = "S" .. i
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5 + jitter, 0.07 + t * 0.86)
+		bar.Size = UDim2.fromScale(w, SCRIBBLE_BAR_H)
+		bar.BackgroundColor3 = colour
+		bar.BackgroundTransparency = SCRIBBLE_FADE
+		bar.BorderSizePixel = 0
+		-- Alternating tilt is what makes it read as one continuous back-and-forth
+		-- stroke rather than as a stack of separate lines.
+		bar.Rotation = (i % 2 == 0) and SCRIBBLE_TILT or -SCRIBBLE_TILT
+		bar.ZIndex = 54
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0.5, 0)
+		c.Parent = bar
+		bar.Parent = box
+	end
+
+	scribbleCache[colour] = box
+	return box:Clone()
+end
+
+-- A pet floats. Behind it sits the scribble in its rarity colour — the whole
 -- rarity read, now that there is no plate to carry it — then the power number
 -- across the bottom in outlined white and the xN badge in the corner.
---
--- The blob is ONE image, not a stack of rounded frames: the panel shadow's
--- 30-layer technique gives a softer falloff but costs 30 instances a tile, and at
--- ~28 tiles that is nearly a thousand frames for a texture an 8KB image already
--- has. Tinted, so one neutral source serves all five rarities.
 local function makeTile(pet, order)
 	local grad = INV.Rarities[pet.Rarity] or P.Gold
 
@@ -610,18 +689,10 @@ local function makeTile(pet, order)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 54
 
-	-- Bigger than the tile: a soft edge that ENDS at the tile's bounds reads as a
-	-- cropped square, which is the one thing a blob must not look like.
-	local blob = Instance.new("ImageLabel")
-	blob.Name = "Blob"
-	blob.BackgroundTransparency = 1
+	local blob = makeScribble(grad[2])
 	blob.AnchorPoint = Vector2.new(0.5, 0.5)
-	blob.Position = UDim2.fromScale(0.5, 0.47)
+	blob.Position = UDim2.fromScale(0.5, 0.44)
 	blob.Size = UDim2.fromScale(BLOB_SIZE, BLOB_SIZE)
-	blob.Image = INV.PetBlob
-	blob.ImageColor3 = grad[2]
-	blob.ImageTransparency = BLOB_FADE
-	blob.ScaleType = Enum.ScaleType.Fit
 	blob.ZIndex = 54
 	blob.Parent = tile
 
@@ -713,30 +784,49 @@ local function makePlus(order)
 	slot.LayoutOrder = order
 	slot.ZIndex = 53
 
+	-- Smaller than a pet tile. In the reference the empty slot is visibly a
+	-- recess in the shelf rather than a cell of the same weight as a pet.
 	local tile = Instance.new("Frame")
 	tile.Name = "Tile"
 	tile.AnchorPoint = Vector2.new(0.5, 0.5)
 	tile.Position = UDim2.fromScale(0.5, 0.5)
-	tile.Size = UDim2.fromScale(1, 1)
-	tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.78)
+	tile.Size = UDim2.fromScale(PLUS_SIZE, PLUS_SIZE)
+	tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.80)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 54
-	kit:corner(tile, TILE_CORNER)
-	kit:stroke(tile, P.Ink:Lerp(P.Panel, 0.40), 2.4)
+	kit:corner(tile, PLUS_CORNER)
+	-- A soft grey edge, not an ink outline. Ink is the weight a pet's own art
+	-- carries; on an empty slot it drew the eye to the one cell with nothing in it.
+	kit:stroke(tile, P.Ink:Lerp(P.Panel, 0.58), 2)
+	-- Lit from the top like every other moulded surface in this game, so the
+	-- recess reads as pressed into the shelf rather than painted on it.
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Color = ColorSequence.new(
+		P.Ink:Lerp(P.Panel, 0.72),
+		P.Ink:Lerp(P.Panel, 0.90)
+	)
+	g.Parent = tile
 
-	local plus = Instance.new("TextLabel")
-	plus.Name = "Plus"
-	plus.BackgroundTransparency = 1
-	plus.AnchorPoint = Vector2.new(0.5, 0.5)
-	plus.Position = UDim2.fromScale(0.5, 0.5)
-	plus.Size = UDim2.fromScale(0.64, 0.64)
-	plus.Text = "+"
-	plus.TextColor3 = P.Ink:Lerp(P.Panel, 0.30)
-	plus.FontFace = FONT
-	plus.TextScaled = true
-	plus.ZIndex = 55
-	kit:capText(plus, 0.62)
-	plus.Parent = tile
+	-- TWO BARS, not a "+" glyph. TextScaled on this font gives a thin, mean cross
+	-- with a lot of air around it; the reference's is short, thick and centred,
+	-- which is a shape the font simply does not have.
+	for i = 1, 2 do
+		local bar = Instance.new("Frame")
+		bar.Name = i == 1 and "PlusH" or "PlusV"
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = i == 1
+			and UDim2.fromScale(PLUS_ARM, PLUS_THICK)
+			or UDim2.fromScale(PLUS_THICK, PLUS_ARM)
+		bar.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.42)
+		bar.BorderSizePixel = 0
+		bar.ZIndex = 55
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0.35, 0)
+		c.Parent = bar
+		bar.Parent = tile
+	end
 
 	tile.Parent = slot
 	return slot
@@ -756,12 +846,27 @@ headRow.Size = UDim2.new(1, 0, 0, 1)
 headRow.LayoutOrder = 0
 headRow.ZIndex = 53
 
+-- The text pair lives in its OWN box, centred in the row, and the UIListLayout
+-- goes on that box rather than on the row. A UIListLayout owns every GuiObject
+-- child of its parent — there is no opting out — so rules parented beside it were
+-- laid out as list items, came out zero-wide, and were counted into
+-- AbsoluteContentSize on top of that.
+local headCenter = Instance.new("Frame")
+headCenter.Name = "Center"
+headCenter.BackgroundTransparency = 1
+headCenter.AnchorPoint = Vector2.new(0.5, 0.5)
+headCenter.Position = UDim2.fromScale(0.5, 0.5)
+headCenter.Size = UDim2.fromScale(0, 1)
+headCenter.AutomaticSize = Enum.AutomaticSize.X
+headCenter.ZIndex = 54
+headCenter.Parent = headRow
+
 local headLay = Instance.new("UIListLayout")
 headLay.FillDirection = Enum.FillDirection.Horizontal
 headLay.HorizontalAlignment = Enum.HorizontalAlignment.Center
 headLay.VerticalAlignment = Enum.VerticalAlignment.Center
 headLay.SortOrder = Enum.SortOrder.LayoutOrder
-headLay.Parent = headRow
+headLay.Parent = headCenter
 
 -- AutomaticSize.X on both, not TextScaled: the count sits immediately after the
 -- header rather than centred in a box of its own, so each label has to be exactly
@@ -780,7 +885,7 @@ headLabel.Text = INV.EquippedHeader
 headLabel.TextColor3 = P.Ink
 headLabel.FontFace = FONT
 headLabel.ZIndex = 54
-headLabel.Parent = headRow
+headLabel.Parent = headCenter
 
 -- DERIVED, never stated: the number of + tiles and this count both fall out of
 -- EquippedCapacity, so they cannot disagree. (The reference reads 10/10 with a +
@@ -795,7 +900,55 @@ countLabel.Text = ("%d/%d"):format(math.min(#equipped, capacity), capacity)
 countLabel.TextColor3 = P.Cyan[2]
 countLabel.FontFace = FONT
 countLabel.ZIndex = 54
-countLabel.Parent = headRow
+countLabel.Parent = headCenter
+
+-- The reference runs a hairline out to each edge from the header text, which is
+-- what makes "Your Best Pets" read as a section rule and not as a floating
+-- caption. Two Frames rather than one behind the text: the text has no background
+-- of its own to mask a line running under it, and giving it one would show as a
+-- white patch the moment the panel's body gradient moved beneath it.
+--
+-- They are NOT in the UIListLayout — it centres its children, so a flexible rule
+-- inside it would be centred too. They are absolutely placed, and their length is
+-- solved in the layout hook from the layout's own measured content width.
+local headRules = {}
+-- Both resolved in the layout hook, where the cell edge is finally known.
+local headRuleThick = 2
+local headRuleGap = 12
+for i = 1, 2 do
+	local r = Instance.new("Frame")
+	r.Name = i == 1 and "RuleLeft" or "RuleRight"
+	r.AnchorPoint = Vector2.new(i == 1 and 0 or 1, 0.5)
+	r.Position = UDim2.fromScale(i == 1 and 0 or 1, 0.5)
+	r.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.74)
+	r.BorderSizePixel = 0
+	r.ZIndex = 53
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.5, 0)
+	c.Parent = r
+	r.Parent = headRow
+	headRules[i] = r
+end
+
+-- Sized from whatever the two boxes CURRENTLY measure, and re-run whenever
+-- either changes. Computing it once inside the layout hook read an AbsoluteSize
+-- that the hook had itself set microseconds earlier — Roblox resolves that at the
+-- next render step, so the first pass saw 0 and the rules stayed zero-wide
+-- forever. Anything that reads AbsoluteSize in the same frame it sets Size has
+-- this bug; driving it off the change signal has no ordering to get wrong.
+local function sizeHeadRules()
+	local rowW = headRow.AbsoluteSize.X
+	local half = headCenter.AbsoluteSize.X / 2
+	if rowW <= 0 or half <= 0 then return end
+	local len = math.max(0, rowW / 2 - half - headRuleGap)
+	for _, r in ipairs(headRules) do
+		r.Size = UDim2.fromOffset(len, headRuleThick)
+	end
+end
+
+headRow:GetPropertyChangedSignal("AbsoluteSize"):Connect(sizeHeadRules)
+headCenter:GetPropertyChangedSignal("AbsoluteSize"):Connect(sizeHeadRules)
+
 headRow.Parent = scroll
 
 local shelf = Instance.new("Frame")
@@ -984,6 +1137,10 @@ kit:onLayout(function()
 	headLabel.TextSize = headSize
 	countLabel.TextSize = headSize
 	headLay.Padding = UDim.new(0, cellW * 0.10)
+
+	headRuleGap = cellW * 0.34
+	headRuleThick = math.max(1, math.floor(cellW * 0.028))
+	sizeHeadRules()
 
 	for _, g in ipairs({ shelfGrid, mainGrid }) do
 		g.CellSize = UDim2.fromOffset(cellW, cellW)
