@@ -99,7 +99,9 @@ local BLOB_SIZE = 0.96
 
 -- The empty shelf slot. Smaller than a pet cell, with a short thick cross built
 -- from two bars rather than a "+" glyph.
-local PLUS_SIZE = 0.80
+local PLUS_SIZE = 0.86
+-- How far the moulded lip sits below the key, of the slot.
+local PLUS_LIP = 0.035
 local PLUS_CORNER = 0.22
 local PLUS_ARM = 0.50
 local PLUS_THICK = 0.155
@@ -382,9 +384,14 @@ local PET_PAD = 1.06
 -- itself or every tile renders a silhouette.
 local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
 -- The outline pass: how much larger its viewport is than the pet's, and what
--- colour it paints. Much past 1.06 and thin parts — an ear, a tail — grow their
--- own separate blobs instead of a contour.
-local PET_STROKE = 1.06
+-- colour it paints.
+--
+-- 1.06 was judged on a 300px probe viewport, where it is a healthy 9px contour.
+-- On a real 60px tile the same 6% is under two pixels and the outline is all but
+-- invisible — which is the whole trap with a proportional stroke: it is judged at
+-- one size and shipped at another. Proportional is still right (the tile is
+-- responsive), the number just has to be chosen at TILE size.
+local PET_STROKE = 1.14
 local PET_STROKE_COLOUR = Color3.fromRGB(28, 28, 40)
 
 -- The tile's stack, bottom to top. Named because the pet is now two layers and a
@@ -727,29 +734,42 @@ local function makePlus(order)
 	slot.LayoutOrder = order
 	slot.ZIndex = 53
 
-	-- Smaller than a pet tile. In the reference the empty slot is visibly a
-	-- recess in the shelf rather than a cell of the same weight as a pet.
+	-- A RAISED KEY, not a recess. It was drawn as a hole pressed into the shelf —
+	-- dark at the top, pale at the bottom, no lip and no sheen — and it read as
+	-- empty space rather than as something you could press. Everything that makes
+	-- a moulded button in this game is now on it: a lip beneath, a bevel lit from
+	-- its own top, a gloss sheet, and an ink edge.
+	--
+	-- It is still a Frame. Nothing can be equipped yet, and a button that pops
+	-- when pressed and then does nothing is a worse lie than a flat plate. It
+	-- becomes a TextButton on the day the equip remote exists.
+	local lip = Instance.new("Frame")
+	lip.Name = "Lip"
+	lip.AnchorPoint = Vector2.new(0.5, 0.5)
+	lip.Position = UDim2.fromScale(0.5, 0.5 + PLUS_LIP)
+	lip.Size = UDim2.fromScale(PLUS_SIZE, PLUS_SIZE)
+	lip.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.52)
+	lip.BorderSizePixel = 0
+	lip.ZIndex = 53
+	kit:corner(lip, PLUS_CORNER)
+	lip.Parent = slot
+
 	local tile = Instance.new("Frame")
 	tile.Name = "Tile"
 	tile.AnchorPoint = Vector2.new(0.5, 0.5)
 	tile.Position = UDim2.fromScale(0.5, 0.5)
 	tile.Size = UDim2.fromScale(PLUS_SIZE, PLUS_SIZE)
-	tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.80)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 54
 	kit:corner(tile, PLUS_CORNER)
-	-- A soft grey edge, not an ink outline. Ink is the weight a pet's own art
-	-- carries; on an empty slot it drew the eye to the one cell with nothing in it.
-	kit:stroke(tile, P.Ink:Lerp(P.Panel, 0.58), 2)
-	-- Lit from the top like every other moulded surface in this game, so the
-	-- recess reads as pressed into the shelf rather than painted on it.
-	local g = Instance.new("UIGradient")
-	g.Rotation = 90
-	g.Color = ColorSequence.new(
-		P.Ink:Lerp(P.Panel, 0.72),
-		P.Ink:Lerp(P.Panel, 0.90)
-	)
-	g.Parent = tile
+	kit:stroke(tile, P.Ink, 2.4)
+	-- grad[1] on top, grad[2] below: the same call every pet tile used to make,
+	-- in grey. Lit from its own top is what reads as standing proud.
+	UIKit.bevel(tile, {
+		P.Ink:Lerp(P.Panel, 0.94),
+		P.Ink:Lerp(P.Panel, 0.66),
+	})
+	UIKit.gloss(tile, 0.46, PLUS_CORNER, 0.78)
 
 	-- TWO BARS, not a "+" glyph. TextScaled on this font gives a thin, mean cross
 	-- with a lot of air around it; the reference's is short, thick and centred,
