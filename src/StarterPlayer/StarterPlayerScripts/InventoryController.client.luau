@@ -104,6 +104,8 @@ local PLUS_SIZE = 0.80
 local PLUS_CORNER = 0.22
 local PLUS_ARM = 0.50
 local PLUS_THICK = 0.155
+-- How far the outline cross stands proud of the white one, in tile scale.
+local PLUS_STROKE = 0.032
 
 -- Entrance stagger: per-tile delay, and the ceiling no tile waits past.
 local ENTRY_STEP = 0.022
@@ -491,7 +493,10 @@ local SCRIBBLE_TILT = 6          -- degrees, alternating
 -- The whole patch is tilted, which is what makes the strokes read as diagonal
 -- hatching rather than as a stack of horizontal lines.
 local SCRIBBLE_ANGLE = -32
-local SCRIBBLE_FADE = 0.5
+-- Fainter than it was. The scribble is a hint of rarity under the pet, not a
+-- field behind it; at 0.5 eight of them in a row were the first thing the eye
+-- landed on, ahead of the pets they are there to label.
+local SCRIBBLE_FADE = 0.7
 -- Bars must stay inside the box: a CanvasGroup CLIPS its descendants to its own
 -- bounds, and a scribble clipped flat on one side stops being a scribble.
 local SCRIBBLE_MAX_W = 0.84
@@ -701,21 +706,34 @@ local function makePlus(order)
 	-- TWO BARS, not a "+" glyph. TextScaled on this font gives a thin, mean cross
 	-- with a lot of air around it; the reference's is short, thick and centred,
 	-- which is a shape the font simply does not have.
-	for i = 1, 2 do
-		local bar = Instance.new("Frame")
-		bar.Name = i == 1 and "PlusH" or "PlusV"
-		bar.AnchorPoint = Vector2.new(0.5, 0.5)
-		bar.Position = UDim2.fromScale(0.5, 0.5)
-		bar.Size = i == 1
-			and UDim2.fromScale(PLUS_ARM, PLUS_THICK)
-			or UDim2.fromScale(PLUS_THICK, PLUS_ARM)
-		bar.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.42)
-		bar.BorderSizePixel = 0
-		bar.ZIndex = 55
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0.35, 0)
-		c.Parent = bar
-		bar.Parent = tile
+	--
+	-- The outline is a SECOND CROSS DRAWN BEHIND, grown by the stroke width on
+	-- every side — not a UIStroke. A UIStroke on each bar would draw its outline
+	-- straight through the other bar where the two cross, leaving a seam across
+	-- the middle of the plus. Two layers have no interior edges to show.
+	local layers = {
+		{ grow = PLUS_STROKE, colour = P.Ink:Lerp(P.Panel, 0.42), z = 55 },
+		{ grow = 0, colour = WHITE, z = 56 },
+	}
+	for _, layer in ipairs(layers) do
+		for i = 1, 2 do
+			local long = PLUS_ARM + layer.grow * 2
+			local short = PLUS_THICK + layer.grow * 2
+			local bar = Instance.new("Frame")
+			bar.Name = (layer.grow > 0 and "Edge" or "Plus") .. (i == 1 and "H" or "V")
+			bar.AnchorPoint = Vector2.new(0.5, 0.5)
+			bar.Position = UDim2.fromScale(0.5, 0.5)
+			bar.Size = i == 1
+				and UDim2.fromScale(long, short)
+				or UDim2.fromScale(short, long)
+			bar.BackgroundColor3 = layer.colour
+			bar.BorderSizePixel = 0
+			bar.ZIndex = layer.z
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0.35, 0)
+			c.Parent = bar
+			bar.Parent = tile
+		end
 	end
 
 	tile.Parent = slot

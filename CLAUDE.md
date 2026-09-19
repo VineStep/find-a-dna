@@ -52,6 +52,9 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   wrapping the image; `ImageLabel.Image = storeId` gives
   `AssetFetchStatus.Failure`. Resolve with `InsertService:LoadAsset(storeId)` and
   read the Decal's `.Texture`.
+- **`store_image` is not an upload.** It returns an `IMAGEID_<id>` URI for the
+  generation tools only; it cannot produce an `rbxassetid` for an `ImageLabel`.
+  There is no way around the grant below.
 - **The place is group-owned, so `upload_image` is useless here.** It always
   uploads as the signed-in *user*, and those ids 403 with
   `assetFetchFailedNoExperienceAccess`. Reuse the verified free Creator Store ids
@@ -154,5 +157,9 @@ Studio access is serial — one agent in the place at a time.
 - Repo: <https://github.com/VineStep/find-a-dna> (public)
 - Notion: "FIND A DNA — Roblox Game" + its task database (14 tasks, 4 P0
   blockers, all gated on standing up a server)
+- ui-resources.com: the catalogue IS enumerable — its Supabase URL, anon key and
+  `resources` table are in `/js/Rresourcespage.js`, and `download_url` serves raw
+  PNGs. 400 rows; no scribble and no soft-shadow image in the whole set. Every
+  image from it still needs the experience-access grant below.
 - Bridge/connection failure modes: `~/.claude/skills/roblox/references/connection.md`
 - Accumulated Roblox findings: `~/.claude/skills/roblox/learned.md`
