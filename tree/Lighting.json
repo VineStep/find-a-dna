@@ -1,0 +1,8 @@
+[
+{"Color": [199, 199, 199], "class": "Atmosphere", "name": "Atmosphere", "path": "Lighting.Atmosphere"},
+{"Enabled": true, "class": "BloomEffect", "name": "Bloom", "path": "Lighting.Bloom"},
+{"Brightness": 0.05000000074505806, "Enabled": true, "class": "ColorCorrectionEffect", "name": "ColorCorrection", "path": "Lighting.ColorCorrection"},
+{"Enabled": false, "class": "DepthOfFieldEffect", "name": "DepthOfField", "path": "Lighting.DepthOfField"},
+{"class": "Sky", "name": "Sky", "path": "Lighting.Sky"},
+{"Enabled": true, "class": "SunRaysEffect", "name": "SunRays", "path": "Lighting.SunRays"}
+]

@@ -86,10 +86,18 @@ Note that `execute_luau` cannot *create* or reparent script instances in this
 place — `ReplicatedStorage` has restricted `Capabilities` — so new scripts must be
 created via `multi_edit`, which uses a privileged path.
 
+## The world
+
+`tree/` holds a text dump of the non-script contents — Workspace, StarterGui,
+ServerStorage, Lighting — one JSON file per service, one instance per line, so
+changes to the built world show up in `git diff`.
+
+See `tree/README.md` for the field reference and, more importantly, the limits:
+**it cannot rebuild the place.** Union geometry, mesh data and terrain are not
+reachable from any script API, so the `.rbxl` place file remains the only
+complete snapshot. It is binary and currently excluded by `.gitignore`.
+
 ## Not in this repo
 
-The export covers scripts only. The place file also contains the built world
-(the DNA machine, the hub geometry), the `StarterGui.HUD` instance tree the
-controllers populate, and lighting — none of which are text and none of which are
-version-controlled here. `Workspace.Bannthemann.Animate` was excluded as the
-stock Roblox avatar animator rather than game source.
+The `.rbxl` place file itself. `Workspace.Bannthemann` (a test avatar left in the
+world) and its stock `Animate` script were excluded as not being game content.
