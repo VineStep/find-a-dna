@@ -34,7 +34,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 
 local UIKit = require(ReplicatedStorage:WaitForChild("UIKit"))
@@ -368,7 +367,12 @@ local PET_MODELS = ReplicatedStorage:WaitForChild(INV.PetModelFolder)
 -- the back of a pet's head, and the ones without a tail read as featureless
 -- blobs. A pet whose model faces elsewhere sets Yaw in GameConfig (degrees about
 -- Y) rather than getting its own camera.
-local PET_VIEW_DIR = Vector3.new(-0.6, 0.35, -1).Unit
+--
+-- Nearly head-on. It was (-0.6, 0.35, -1), a three-quarter view from well above,
+-- which showed a lot of flank and the top of the skull; a pet in an inventory
+-- slot should be looking AT the player, turned just enough off-axis to have a
+-- near side and a far side.
+local PET_VIEW_DIR = Vector3.new(-0.30, 0.16, -1).Unit
 local PET_FOV = 30
 -- Slack around the fitted axis. Barely over 1: these are 70px tiles and a pet that
 -- does not fill its frame reads as a bug, not as breathing room.
@@ -377,25 +381,94 @@ local PET_PAD = 1.06
 -- pets are dark-textured, so the viewport has to supply nearly all of the light
 -- itself or every tile renders a silhouette.
 local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
+-- The outline pass: how much larger its viewport is than the pet's, and what
+-- colour it paints. Much past 1.06 and thin parts — an ear, a tail — grow their
+-- own separate blobs instead of a contour.
+local PET_STROKE = 1.06
+local PET_STROKE_COLOUR = Color3.fromRGB(28, 28, 40)
 
--- Idle sway. The pets turn slowly back and forth rather than spinning: a full
--- spin reads as a turntable and drags the eye across the whole grid at once,
--- where a shallow sway just says the panel is alive. Each tile gets its own phase
--- so the grid never moves in lockstep, which is the thing that looks mechanical.
-local SWAY_DEGREES = 13
-local SWAY_PERIOD = 3.4
--- STRONG keys, pruned by hand in the loop below. A weak-keyed table was the
--- obvious choice and silently emptied itself within a frame: a parented Instance
--- is reachable from the DataModel, but nothing holds a reference to its LUA
--- wrapper, and a weak key is exactly the thing that does not count as one. The
--- symptom is the worst kind — no error, no warning, the loop running happily over
--- an empty table. Pruning on cam.Parent == nil does the same job honestly, and
--- Destroy() unparents descendants, so a rebuilt grid drops out on the next frame.
-local swaying = {}
+-- The tile's stack, bottom to top. Named because the pet is now two layers and a
+-- tie between any two of these is resolved by tree order, which is not something
+-- to leave to chance under ZIndexBehavior.Global.
+local Z_SCRIBBLE = 54
+local Z_PET_STROKE = 55
+local Z_PET = 56
+local Z_TEXT = 57
+
+-- The pets DO NOT MOVE. An idle sway lived here — each tile turning slowly on its
+-- own phase — and it was rejected: eighteen pets drifting at once is motion
+-- competing with the grid the player is reading, not life. The entrance stagger
+-- is the only animation left on a tile, and it ends.
 
 -- ponytail: one ViewportFrame per tile, ~28 of them on an open panel. Fine at this
 -- roster size; if the grid ever pages past a few hundred, render each model once to
 -- a pooled viewport and reuse it rather than giving every tile its own camera.
+-- One pass of a pet: the model, framed, in its own viewport. `flat` paints every
+-- surface a single dark colour and kills its textures and lights, which is the
+-- OUTLINE pass — see makePetIcon.
+local function buildPetViewport(pet, source, flat)
+	local vp = Instance.new("ViewportFrame")
+	vp.BackgroundTransparency = 1
+	vp.AnchorPoint = Vector2.new(0.5, 0.5)
+	vp.Position = UDim2.fromScale(0.5, 0.5)
+	-- The tile's own surface is the background; the model must not be lit by the
+	-- place's Lighting or it picks up the world's time of day inside a GUI.
+	-- A flat pass wants NO directional light at all, or its silhouette comes out
+	-- shaded and stops reading as an outline.
+	vp.Ambient = flat and Color3.new(1, 1, 1) or PET_AMBIENT
+	vp.LightColor = flat and Color3.new(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.5, -1, -0.5)
+
+	local model = source:Clone()
+	if flat then
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Color = PET_STROKE_COLOUR
+				d.Material = Enum.Material.SmoothPlastic
+				-- A MeshPart keeps its texture through a Color change, so the
+				-- silhouette would come out wearing the pet's own face.
+				if d:IsA("MeshPart") then
+					d.TextureID = ""
+				end
+			elseif d:IsA("SpecialMesh") then
+				d.TextureId = ""
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				d:Destroy()
+			end
+		end
+	end
+	model.Parent = vp
+
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = PET_FOV
+	local centre, size = model:GetBoundingBox()
+	-- The LONGEST AXIS, not the box's diagonal. Fitting the diagonal is what
+	-- guarantees nothing ever clips, and it is also why the first pass rendered
+	-- every pet at a third of its frame: the diagonal of a 25x15x17 box is 33, so
+	-- the camera backs off far enough to frame a sphere the pet never fills.
+	local radius = math.max(size.X, size.Y, size.Z) / 2
+	local dist = (radius * PET_PAD) / math.tan(math.rad(PET_FOV / 2))
+	local dir = PET_VIEW_DIR
+	if pet.Yaw then
+		dir = CFrame.Angles(0, math.rad(pet.Yaw), 0) * dir
+	end
+	cam.CFrame = CFrame.lookAt(centre.Position + dir * dist, centre.Position)
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	return vp
+end
+
+-- A pet and its outline. The outline is the SAME model rendered a second time,
+-- flat dark, in a viewport scaled up a few percent behind the real one — its
+-- silhouette is what shows around the edges.
+--
+-- It is done this way because the obvious ways do not work. A Highlight does not
+-- render inside a ViewportFrame at all (tested: AlwaysOnTop, Occluded and no
+-- highlight are pixel-identical). A UIStroke on the ViewportFrame outlines the
+-- rectangle, not the pet. A true inverted hull needs flipped normals, which no
+-- script API exposes. Scaling the GUI frame scales the rendered image with it,
+-- which is the whole trick, and it costs no 3D maths.
 local function makePetIcon(pet)
 	local source = pet.Model and PET_MODELS:FindFirstChild(pet.Model)
 	if not source then
@@ -410,62 +483,25 @@ local function makePetIcon(pet)
 		return img
 	end
 
-	local vp = Instance.new("ViewportFrame")
-	vp.Name = "Icon"
-	vp.BackgroundTransparency = 1
-	vp.AnchorPoint = Vector2.new(0.5, 0.5)
-	-- The tile's own gradient is the background; the model must not be lit by the
-	-- place's Lighting or it picks up the world's time of day inside a GUI.
-	vp.Ambient = PET_AMBIENT
-	vp.LightColor = Color3.fromRGB(255, 255, 255)
-	vp.LightDirection = Vector3.new(-0.5, -1, -0.5)
+	local holder = Instance.new("Frame")
+	holder.Name = "Icon"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
 
-	local model = source:Clone()
-	model.Parent = vp
+	local outline = buildPetViewport(pet, source, true)
+	outline.Name = "Stroke"
+	outline.Size = UDim2.fromScale(PET_STROKE, PET_STROKE)
+	outline.ZIndex = Z_PET_STROKE
+	outline.Parent = holder
 
-	local cam = Instance.new("Camera")
-	cam.FieldOfView = PET_FOV
-	local centre, size = model:GetBoundingBox()
-	-- The LONGEST AXIS, not the box's diagonal. Fitting the diagonal is what
-	-- guarantees nothing ever clips, and it is also why the first pass rendered
-	-- every pet at a third of its frame: the diagonal of a 25x15x17 box is 33, so
-	-- the camera backs off far enough to frame a sphere the pet never fills.
-	-- Fitting the longest axis fills the tile, and the padding above covers the
-	-- little the three-quarter angle adds.
-	local radius = math.max(size.X, size.Y, size.Z) / 2
-	local dist = (radius * PET_PAD) / math.tan(math.rad(PET_FOV / 2))
-	local dir = PET_VIEW_DIR
-	if pet.Yaw then
-		dir = CFrame.Angles(0, math.rad(pet.Yaw), 0) * dir
-	end
-	cam.CFrame = CFrame.lookAt(centre.Position + dir * dist, centre.Position)
-	cam.Parent = vp
-	vp.CurrentCamera = cam
+	local body = buildPetViewport(pet, source, false)
+	body.Name = "Body"
+	body.Size = UDim2.fromScale(1, 1)
+	body.ZIndex = Z_PET
+	body.Parent = holder
 
-	swaying[cam] = {
-		focus = centre.Position,
-		dir = dir,
-		dist = dist,
-		-- Deterministic per pet, not random: a rebuild (a keystroke in the search
-		-- box) must not make the whole grid jump to a new set of phases.
-		phase = (#pet.Name * 0.7 + (pet.Power or 0) * 0.013) % (math.pi * 2),
-	}
-	return vp
+	return holder
 end
-
-RunService.RenderStepped:Connect(function()
-	local t = os.clock()
-	for cam, e in pairs(swaying) do
-		if cam.Parent == nil then
-			swaying[cam] = nil
-		else
-			local a = math.sin(t * (math.pi * 2 / SWAY_PERIOD) + e.phase)
-				* math.rad(SWAY_DEGREES)
-			local d = CFrame.Angles(0, a, 0) * e.dir
-			cam.CFrame = CFrame.lookAt(e.focus + d * e.dist, e.focus)
-		end
-	end
-end)
 
 -- A SCRIBBLE, drawn rather than fetched. A marker scribble is a stack of
 -- overlapping strokes, so that is literally what this builds: rounded bars, each
@@ -493,10 +529,11 @@ local SCRIBBLE_TILT = 6          -- degrees, alternating
 -- The whole patch is tilted, which is what makes the strokes read as diagonal
 -- hatching rather than as a stack of horizontal lines.
 local SCRIBBLE_ANGLE = -32
--- Fainter than it was. The scribble is a hint of rarity under the pet, not a
--- field behind it; at 0.5 eight of them in a row were the first thing the eye
--- landed on, ahead of the pets they are there to label.
-local SCRIBBLE_FADE = 0.7
+-- Paired with the LIGHT end of the rarity gradient, which the bars are drawn in.
+-- The two knobs have to move together and in opposite directions: light colour
+-- plus the 0.7 that suited the dark one composites to within a few percent of the
+-- white panel, and the scribble disappears completely. Light colour, less fade.
+local SCRIBBLE_FADE = 0.42
 -- Bars must stay inside the box: a CanvasGroup CLIPS its descendants to its own
 -- bounds, and a scribble clipped flat on one side stops being a scribble.
 local SCRIBBLE_MAX_W = 0.84
@@ -543,7 +580,13 @@ local function makeScribble(colour)
 		-- Alternating tilt is what makes it read as one continuous back-and-forth
 		-- stroke rather than as a stack of separate lines.
 		bar.Rotation = (i % 2 == 0) and SCRIBBLE_TILT or -SCRIBBLE_TILT
-		bar.ZIndex = 54
+		-- The GROUP's ZIndex, not 1. A CanvasGroup composites its descendants, but
+		-- it does NOT isolate them from ZIndexBehavior.Global — the bars are still
+		-- compared against every other element in the ScreenGui, and at 1 they sit
+		-- below the panel itself (50) and never draw. The scribble vanished
+		-- completely, with the CanvasGroup reporting Visible, a sane
+		-- GroupTransparency and a real AbsoluteSize the whole time.
+		bar.ZIndex = Z_SCRIBBLE
 		local c = Instance.new("UICorner")
 		c.CornerRadius = UDim.new(0.5, 0)
 		c.Parent = bar
@@ -584,18 +627,23 @@ local function makeTile(pet, order)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 54
 
-	local blob = makeScribble(grad[2])
+	-- grad[1], the LIGHT end of the rarity pair, not grad[2]. The dark end is the
+	-- colour a saturated plate is made of; with nothing on top of it, it sat as
+	-- heavy behind the pet as the pet itself.
+	local blob = makeScribble(grad[1])
 	blob.AnchorPoint = Vector2.new(0.5, 0.5)
 	blob.Position = UDim2.fromScale(0.5, 0.44)
 	blob.Size = UDim2.fromScale(BLOB_SIZE, BLOB_SIZE)
-	blob.ZIndex = 54
+	blob.ZIndex = Z_SCRIBBLE
 	blob.Parent = tile
 
 	local icon = makePetIcon(pet)
 	-- High in the tile: the power number owns the bottom quarter.
 	icon.Position = UDim2.fromScale(0.5, 0.41)
-	icon.Size = UDim2.fromScale(0.76, 0.62)
-	icon.ZIndex = 55
+	-- Larger than the three-quarter view needed. Head-on, a pet presents its
+	-- narrowest silhouette, so the same framing box renders it visibly smaller.
+	icon.Size = UDim2.fromScale(0.84, 0.70)
+	icon.ZIndex = Z_PET_STROKE
 	icon.Parent = tile
 
 	-- Omitted Power draws "??", which is what the reference does for its rarest
@@ -611,7 +659,7 @@ local function makeTile(pet, order)
 	power.TextColor3 = WHITE
 	power.FontFace = FONT
 	power.TextScaled = true
-	power.ZIndex = 56
+	power.ZIndex = Z_TEXT
 	kit:capText(power, 0.25)
 	kit:outline(power, 2)
 	power.Parent = tile
@@ -620,7 +668,7 @@ local function makeTile(pet, order)
 	-- behind it, like every other call-out in this game: a bordered plate in the
 	-- corner of a tile that is itself a button gives two things to press.
 	if (pet.Count or 1) > 1 then
-		local badge = kit:tag("Count", "x" .. pet.Count, 56)
+		local badge = kit:tag("Count", "x" .. pet.Count, Z_TEXT)
 		-- WHITE, not the shop's gold Tag. On a plate the gold had a saturated field
 		-- to sit against; floating over the panel it reads as a loose yellow mark.
 		badge.TextColor3 = WHITE

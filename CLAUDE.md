@@ -70,6 +70,15 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   The bars are **opaque inside a `CanvasGroup`**, not semi-transparent:
   overlapping translucent frames compound, and every crossing came out darker
   than its neighbours. The group carries the fade and the diagonal rotation.
+  A `CanvasGroup` does **not** isolate its children from `ZIndexBehavior.Global`
+  — give them the group's own ZIndex band or they sort below the panel and never
+  draw. Colour and fade move together: the scribble uses the **light** end of the
+  rarity pair, so the fade has to come down with it or it composites to white.
+- **Pets are still, near head-on, and outlined.** No idle sway — eighteen pets
+  drifting is motion competing with the grid. The outline is the same model
+  rendered a second time, flat dark, in a viewport scaled 1.06 behind the real
+  one: `Highlight` does not render inside a `ViewportFrame` at all (verified),
+  and `UIStroke` would outline the rectangle.
 - **The header has no sort control.** A POWER / A-Z pill sat between the title
   and the search field and read as clutter however it was styled. The order it
   chose is now the only order (power descending). Restoring it means putting a
