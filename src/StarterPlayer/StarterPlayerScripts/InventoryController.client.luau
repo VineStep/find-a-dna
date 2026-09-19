@@ -157,6 +157,17 @@ local kit = UIKit.chrome(panel, {
 -- Measured on the reference: the title's cap height is 7.6% of panel height.
 kit.title.Size = UDim2.fromScale(0.5, 0.082)
 
+-- Borrowed straight from the shop: the same halftone sheet its cards and its
+-- feature banner carry, on the panel body. Removing the studded plate left this
+-- panel a flat white field, which is the one surface in the game with no texture
+-- on it at all — the reference's is not flat either. UIKit.halftone is the shop's
+-- own layer, so this is the same dot pattern at the same scale, not a lookalike.
+--
+-- Much fainter than the shop uses it (0.76 on a card): a card is 272px of
+-- saturated colour and the dots have to fight it, where this is a whole pale
+-- panel and the same strength reads as dirt.
+UIKit.halftone(panel, PANEL_CORNER, 0.87)
+
 -- The shell's Banner is ShopPanel furniture; this layout has no feature row.
 -- Hidden rather than destroyed, like Rule and Body.
 local banner = panel:FindFirstChild("Banner")
@@ -227,7 +238,15 @@ for i, entry in ipairs(INV.Rail) do
 	-- looking at Pets" while the other five cells did nothing at all when pressed,
 	-- which promised navigation this panel does not have. When a rail cell can
 	-- actually change what the grid shows, the highlight comes back with it.
-	tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.88)
+	--
+	-- Moulded, not flat: the shop's own bevel and gloss, in grey. Flat discs were
+	-- the only surface in the panel that was not plastic, and next to the +
+	-- key — which is built from the same two calls — they read as holes.
+	UIKit.bevel(tile, {
+		P.Ink:Lerp(P.Panel, 0.95),
+		P.Ink:Lerp(P.Panel, 0.74),
+	})
+	UIKit.gloss(tile, 0.46, 0.5, 0.82)
 
 	if entry.Icon then
 		local im = Instance.new("ImageLabel")
@@ -383,15 +402,27 @@ local PET_PAD = 1.06
 -- pets are dark-textured, so the viewport has to supply nearly all of the light
 -- itself or every tile renders a silhouette.
 local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
--- The outline pass: how much larger its viewport is than the pet's, and what
--- colour it paints.
+-- The outline is STAMPED, not scaled. Scaling a copy up behind the pet offsets
+-- every edge RADIALLY from the image centre, so the contour is fat where the pet
+-- is far from centre and vanishes where it is near it, and on a model with limbs
+-- the dark copy shows its own depth through the gaps. That is the "3D outline"
+-- look, and no amount of tuning the scale factor fixes it: the offset is wrong in
+-- KIND, not in size.
 --
--- 1.06 was judged on a 300px probe viewport, where it is a healthy 9px contour.
--- On a real 60px tile the same 6% is under two pixels and the outline is all but
--- invisible — which is the whole trap with a proportional stroke: it is judged at
--- one size and shipped at another. Proportional is still right (the tile is
--- responsive), the number just has to be chosen at TILE size.
-local PET_STROKE = 1.14
+-- Four flat copies offset one stroke-width up, down, left and right give a
+-- contour of even thickness that follows the silhouette. Four rather than eight
+-- because each is a full viewport, and eight would be 162 of them on one panel.
+local PET_STROKE_OFFSETS = {
+	Vector2.new(1, 0), Vector2.new(-1, 0),
+	Vector2.new(0, 1), Vector2.new(0, -1),
+}
+-- Of the pet's own box, so it survives a resize. Chosen at TILE size, not on a
+-- magnified probe: 1.06 as a scale factor was picked on a 300px probe, where 6%
+-- is a healthy 9px, and shipped onto 60px tiles as under two pixels.
+local PET_STROKE = 0.042
+-- The pet's box, of the tile. SQUARE, so one scale figure means the same number
+-- of pixels on both axes and the stamped contour is not elliptical.
+local PET_BOX = 0.76
 local PET_STROKE_COLOUR = Color3.fromRGB(28, 28, 40)
 
 -- The tile's stack, bottom to top. Named because the pet is now two layers and a
@@ -495,11 +526,17 @@ local function makePetIcon(pet)
 	holder.BackgroundTransparency = 1
 	holder.AnchorPoint = Vector2.new(0.5, 0.5)
 
-	local outline = buildPetViewport(pet, source, true)
-	outline.Name = "Stroke"
-	outline.Size = UDim2.fromScale(PET_STROKE, PET_STROKE)
-	outline.ZIndex = Z_PET_STROKE
-	outline.Parent = holder
+	for i, dir in ipairs(PET_STROKE_OFFSETS) do
+		local outline = buildPetViewport(pet, source, true)
+		outline.Name = "Stroke" .. i
+		outline.Size = UDim2.fromScale(1, 1)
+		outline.Position = UDim2.fromScale(
+			0.5 + dir.X * PET_STROKE,
+			0.5 + dir.Y * PET_STROKE
+		)
+		outline.ZIndex = Z_PET_STROKE
+		outline.Parent = holder
+	end
 
 	local body = buildPetViewport(pet, source, false)
 	body.Name = "Body"
@@ -647,9 +684,9 @@ local function makeTile(pet, order)
 	local icon = makePetIcon(pet)
 	-- High in the tile: the power number owns the bottom quarter.
 	icon.Position = UDim2.fromScale(0.5, 0.41)
-	-- Larger than the three-quarter view needed. Head-on, a pet presents its
-	-- narrowest silhouette, so the same framing box renders it visibly smaller.
-	icon.Size = UDim2.fromScale(0.84, 0.70)
+	-- Square (see PET_BOX). Larger than the three-quarter view needed: head-on, a
+	-- pet presents its narrowest silhouette, so the same box renders it smaller.
+	icon.Size = UDim2.fromScale(PET_BOX, PET_BOX)
 	icon.ZIndex = Z_PET_STROKE
 	icon.Parent = tile
 

@@ -78,7 +78,17 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   drifting is motion competing with the grid. The outline is the same model
   rendered a second time, flat dark, in a viewport scaled 1.06 behind the real
   one: `Highlight` does not render inside a `ViewportFrame` at all (verified),
-  and `UIStroke` would outline the rectangle.
+  and `UIStroke` would outline the rectangle. **Stamped, not scaled** — four flat
+  copies offset on each axis. Scaling offsets every edge radially from the image
+  centre, which is fat far from centre, absent near it, and shows the dark copy's
+  own depth through the gaps; that is the "3D outline" look and no scale factor
+  fixes it. The pet's holder is square so the contour is not elliptical.
+- **Shop borrows.** `UIKit` exports the shop's whole design language —
+  `halftone`, `rays`, `castShadow`, `bevel`, `gloss`. The inventory panel carries
+  the shop's own halftone sheet (much fainter: a card is 272px of saturated
+  colour that the dots must fight, a pale panel is not), and the rail cells and
+  the `+` key are built from the same `bevel` + `gloss` pair its cards use.
+  `rays` is available and unused here — the scribble already occupies that slot.
 - **The header has no sort control.** A POWER / A-Z pill sat between the title
   and the search field and read as clutter however it was styled. The order it
   chose is now the only order (power descending). Restoring it means putting a
