@@ -371,17 +371,23 @@ local STUDS_TILE = 72
 -- design (GameConfig.Shop.Palette.Panel) and the cyan plate above would fight it,
 -- so it gets a white plate with the sheet faded almost out — a ~5% watermark rather
 -- than a surface. The other five panels are untouched.
+-- Skip = true means the panel gets NO studded sheet at all and shows its own body
+-- gradient instead. InventoryPanel is the reference's plain white sheet: its pets
+-- float with no plate under them, and a stud grid behind floating art is texture
+-- competing with the subject rather than a surface supporting it.
 local STUDS_OVERRIDE = {
 	ShopPanel = {
 		Plate = Color3.fromRGB(253, 253, 253),
 		Fade = 0.93,
 		Tint = Color3.fromRGB(150, 164, 200),
 	},
+	InventoryPanel = { Skip = true },
 }
 
 local function buildStuds(panel)
 	if panel:FindFirstChild("Studs") then return end
 	local over = STUDS_OVERRIDE[panel.Name] or {}
+	if over.Skip then return end
 
 	local studs = Instance.new("ImageLabel")
 	studs.Name = "Studs"

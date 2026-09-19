@@ -16,10 +16,12 @@
 	HUDController still owns the open/close pop, the close button's feel and the
 	studded plate.
 
-	One deliberate departure from the reference: there the pets float on the panel
-	with no tile behind them. Here every pet sits on a bevelled plastic tile with
-	an ink outline and a gloss, because that is the house language and floating art
-	abandons it. Reference layout, shop surfacing.
+	Pets FLOAT, the way the reference has them: no plastic tile, no ink outline, no
+	gloss. Behind each one is a soft-edged blob tinted with its rarity colour, which
+	is what carries the rarity read now that the tile is gone. An earlier pass gave
+	every pet a bevelled shop-style tile on the argument that floating art abandoned
+	the house language; it was rejected on sight — eight saturated plates in a row
+	is a wall of colour, and the pet stops being the subject.
 
 	NOTHING HERE EQUIPS ANYTHING, and nothing here buys, sells, locks or deletes
 	anything either. ServerScriptService is empty: there is no pet system, no
@@ -32,6 +34,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 
 local UIKit = require(ReplicatedStorage:WaitForChild("UIKit"))
@@ -63,9 +66,24 @@ local INSET = 0.02        -- scroll inset from the panel edge, of panel WIDTH
 -- content has to start clear of the half of it that is on the panel.
 local RAIL_W = 0.055      -- of panel width
 local RAIL_X = 0.014      -- rail CENTRE, of panel width: just over half outside
+-- The rail's own padding and gap, of its own box. Named rather than inlined
+-- because the capsule's HEIGHT is solved from them below.
+local RAIL_PAD_SIDE = 0.10
+local RAIL_PAD_TB = 0.02
+local RAIL_GAP = 0.012
 -- Starts below the title icon, which hangs off the same corner and is drawn over
--- the rail (ZIndex 62 against 56) if the two are allowed to meet.
-local RAIL_Y, RAIL_H = 0.595, 0.75 -- centre and height, of panel height
+-- the rail (ZIndex 62 against 56) if the two are allowed to meet. The TOP is the
+-- fixed end; the capsule grows downward from it.
+local RAIL_TOP = 0.22
+-- DERIVED, not chosen. A cell is squared by a UIAspectRatioConstraint, so its
+-- height is the rail's usable WIDTH converted to panel-height units — and the
+-- capsule is however tall it takes to hold #Rail of them plus the gaps. Dropping
+-- the two locked cells from eight to six left a quarter of the old fixed 0.75
+-- capsule empty below the last icon, which is the bug this replaces.
+local RAIL_CELL = RAIL_W * PANEL_ASPECT * (1 - RAIL_PAD_SIDE * 2)
+local RAIL_H = (#INV.Rail * RAIL_CELL)
+	/ (1 - RAIL_GAP * (#INV.Rail - 1) - RAIL_PAD_TB * 2)
+local RAIL_Y = RAIL_TOP + RAIL_H / 2
 local CONTENT_X = 0.062   -- the scroll's left edge, of panel width
 -- Side inset INSIDE the scroll, of its window width. Tiles are sized to fill the
 -- row exactly, so the outer column's UIStroke — drawn outside the tile's bounds —
@@ -73,6 +91,18 @@ local CONTENT_X = 0.062   -- the scroll's left edge, of panel width
 -- visible slice of the tile itself out of view. This is the room both need.
 local EDGE = 0.02
 local GUTTER = 0.014      -- of content width
+-- The rarity blob behind a floating pet, as a fraction of the tile. OVER 1: the
+-- image's soft edge has to run out past the tile's bounds or it reads as a
+-- cropped square instead of a blob.
+local BLOB_SIZE = 1.0
+-- Faint. It is a tint under the pet, not a plate behind it — at full strength the
+-- grid goes back to being eight saturated squares, which is what this replaced.
+local BLOB_FADE = 0.62
+
+-- Entrance stagger: per-tile delay, and the ceiling no tile waits past.
+local ENTRY_STEP = 0.022
+local ENTRY_MAX = 0.28
+
 -- A tile is square: an icon over a power number, with the count badge in the
 -- corner. UICorner scale is of the shorter side, which here is either.
 local TILE_CORNER = 0.16
@@ -141,14 +171,16 @@ rail.BorderSizePixel = 0
 -- edge; below the header chrome (61+), which overhangs the same corner.
 rail.ZIndex = 56
 kit:corner(rail, 0.30) -- of the shorter side, which is its width: a capsule
-kit:stroke(rail, P.Ink, 3)
+-- Thinner than the panel's own chrome. The rail is a shelf the panel carries, not
+-- a second panel, and at 3 it read as heavily outlined as the thing it sits on.
+kit:stroke(rail, P.Ink, 2)
 rail.Parent = panel
 
 local railPad = Instance.new("UIPadding")
-railPad.PaddingLeft = UDim.new(0.10, 0)
-railPad.PaddingRight = UDim.new(0.10, 0)
-railPad.PaddingTop = UDim.new(0.02, 0)
-railPad.PaddingBottom = UDim.new(0.02, 0)
+railPad.PaddingLeft = UDim.new(RAIL_PAD_SIDE, 0)
+railPad.PaddingRight = UDim.new(RAIL_PAD_SIDE, 0)
+railPad.PaddingTop = UDim.new(RAIL_PAD_TB, 0)
+railPad.PaddingBottom = UDim.new(RAIL_PAD_TB, 0)
 railPad.Parent = rail
 
 local railList = Instance.new("UIListLayout")
@@ -156,7 +188,7 @@ railList.FillDirection = Enum.FillDirection.Vertical
 railList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 railList.VerticalAlignment = Enum.VerticalAlignment.Center
 railList.SortOrder = Enum.SortOrder.LayoutOrder
-railList.Padding = UDim.new(0.012, 0)
+railList.Padding = UDim.new(RAIL_GAP, 0)
 railList.Parent = rail
 
 for i, entry in ipairs(INV.Rail) do
@@ -166,7 +198,11 @@ for i, entry in ipairs(INV.Rail) do
 	-- A generous free axis, then squared by the constraint. A
 	-- UIAspectRatioConstraint only ever SHRINKS — it never derives a zero axis —
 	-- so a width of 0 here would render nothing at all.
-	tile.Size = UDim2.fromScale(1, 0.108)
+	--
+	-- Height DERIVED from the roster length, not the 0.108 that eight cells wanted:
+	-- the two locked "?" cells are gone, and six cells at the old height left a
+	-- quarter of the capsule empty below them.
+	tile.Size = UDim2.fromScale(1, RAIL_CELL / RAIL_H)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 57
 	local ar = Instance.new("UIAspectRatioConstraint")
@@ -181,9 +217,11 @@ for i, entry in ipairs(INV.Rail) do
 	elseif selected then
 		-- Visibly lighter than its neighbours, and the only one with an outline.
 		tile.BackgroundColor3 = WHITE
-		kit:stroke(tile, P.Ink, 2.2)
+		kit:stroke(tile, P.Ink, 1.8)
 	else
-		tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.80)
+		-- Paler than it was. These are inert cells behind a selected one; at 0.80
+		-- they were dark enough to compete with it for the eye.
+		tile.BackgroundColor3 = P.Ink:Lerp(P.Panel, 0.88)
 	end
 
 	if entry.Locked then
@@ -209,7 +247,10 @@ for i, entry in ipairs(INV.Rail) do
 		im.BackgroundTransparency = 1
 		im.AnchorPoint = Vector2.new(0.5, 0.5)
 		im.Position = UDim2.fromScale(0.5, 0.5)
-		im.Size = UDim2.fromScale(0.78, 0.78)
+		-- Nearly the whole cell. At 0.78 the icons read as small marks floating in
+		-- their plates rather than as the plate's content, which is what the
+		-- reference's rail looks like.
+		im.Size = UDim2.fromScale(0.86, 0.86)
 		im.Image = entry.Icon
 		-- Fit, not Stretch: these come from half a dozen creators at half a dozen
 		-- aspect ratios and stretching turns round things into ovals.
@@ -445,6 +486,21 @@ local PET_PAD = 1.06
 -- itself or every tile renders a silhouette.
 local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
 
+-- Idle sway. The pets turn slowly back and forth rather than spinning: a full
+-- spin reads as a turntable and drags the eye across the whole grid at once,
+-- where a shallow sway just says the panel is alive. Each tile gets its own phase
+-- so the grid never moves in lockstep, which is the thing that looks mechanical.
+local SWAY_DEGREES = 13
+local SWAY_PERIOD = 3.4
+-- STRONG keys, pruned by hand in the loop below. A weak-keyed table was the
+-- obvious choice and silently emptied itself within a frame: a parented Instance
+-- is reachable from the DataModel, but nothing holds a reference to its LUA
+-- wrapper, and a weak key is exactly the thing that does not count as one. The
+-- symptom is the worst kind — no error, no warning, the loop running happily over
+-- an empty table. Pruning on cam.Parent == nil does the same job honestly, and
+-- Destroy() unparents descendants, so a rebuilt grid drops out on the next frame.
+local swaying = {}
+
 -- ponytail: one ViewportFrame per tile, ~28 of them on an open panel. Fine at this
 -- roster size; if the grid ever pages past a few hundred, render each model once to
 -- a pooled viewport and reuse it rather than giving every tile its own camera.
@@ -494,13 +550,39 @@ local function makePetIcon(pet)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
 
+	swaying[cam] = {
+		focus = centre.Position,
+		dir = dir,
+		dist = dist,
+		-- Deterministic per pet, not random: a rebuild (a keystroke in the search
+		-- box) must not make the whole grid jump to a new set of phases.
+		phase = (#pet.Name * 0.7 + (pet.Power or 0) * 0.013) % (math.pi * 2),
+	}
 	return vp
 end
 
--- The departure from the reference, and the whole point of it: a pet is not art
--- floating on the panel, it is art on a moulded plastic tile — the item gradient
--- for its rarity through bevel(), an ink outline, a gloss on top, the power
--- number across the bottom in outlined white, and the xN badge in the corner.
+RunService.RenderStepped:Connect(function()
+	local t = os.clock()
+	for cam, e in pairs(swaying) do
+		if cam.Parent == nil then
+			swaying[cam] = nil
+		else
+			local a = math.sin(t * (math.pi * 2 / SWAY_PERIOD) + e.phase)
+				* math.rad(SWAY_DEGREES)
+			local d = CFrame.Angles(0, a, 0) * e.dir
+			cam.CFrame = CFrame.lookAt(e.focus + d * e.dist, e.focus)
+		end
+	end
+end)
+
+-- A pet floats. Behind it sits a soft-edged blob in its rarity colour — the whole
+-- rarity read, now that there is no plate to carry it — then the power number
+-- across the bottom in outlined white and the xN badge in the corner.
+--
+-- The blob is ONE image, not a stack of rounded frames: the panel shadow's
+-- 30-layer technique gives a softer falloff but costs 30 instances a tile, and at
+-- ~28 tiles that is nearly a thousand frames for a texture an 8KB image already
+-- has. Tinted, so one neutral source serves all five rarities.
 local function makeTile(pet, order)
 	local grad = INV.Rarities[pet.Rarity] or P.Gold
 
@@ -515,6 +597,8 @@ local function makeTile(pet, order)
 	slot.LayoutOrder = order
 	slot.ZIndex = 53
 
+	-- Invisible: it exists to be pressed and to carry the hover pop. Everything
+	-- visible is a child, so the pop scales blob, pet, number and badge together.
 	local tile = Instance.new("TextButton")
 	tile.Name = "Tile"
 	tile.Text = ""
@@ -522,18 +606,24 @@ local function makeTile(pet, order)
 	tile.AnchorPoint = Vector2.new(0.5, 0.5)
 	tile.Position = UDim2.fromScale(0.5, 0.5)
 	tile.Size = UDim2.fromScale(1, 1)
-	tile.BackgroundColor3 = grad[1]
+	tile.BackgroundTransparency = 1
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 54
-	kit:corner(tile, TILE_CORNER)
-	-- Ink, not white. Every border drawn INSIDE the panel is ink; white is the
-	-- panel's own edge against the 3D world and nothing else gets to use it.
-	kit:stroke(tile, P.Ink, 3)
-	UIKit.bevel(tile, grad)
-	-- No rays and no halftone here, unlike the shop's cards. Both are textures
-	-- judged at 272px; on a 70px tile they resolve to noise behind the icon, and
-	-- the icon is the subject.
-	UIKit.gloss(tile, 0.46, TILE_CORNER, 0.74)
+
+	-- Bigger than the tile: a soft edge that ENDS at the tile's bounds reads as a
+	-- cropped square, which is the one thing a blob must not look like.
+	local blob = Instance.new("ImageLabel")
+	blob.Name = "Blob"
+	blob.BackgroundTransparency = 1
+	blob.AnchorPoint = Vector2.new(0.5, 0.5)
+	blob.Position = UDim2.fromScale(0.5, 0.47)
+	blob.Size = UDim2.fromScale(BLOB_SIZE, BLOB_SIZE)
+	blob.Image = INV.PetBlob
+	blob.ImageColor3 = grad[2]
+	blob.ImageTransparency = BLOB_FADE
+	blob.ScaleType = Enum.ScaleType.Fit
+	blob.ZIndex = 54
+	blob.Parent = tile
 
 	local icon = makePetIcon(pet)
 	-- High in the tile: the power number owns the bottom quarter.
@@ -565,6 +655,9 @@ local function makeTile(pet, order)
 	-- corner of a tile that is itself a button gives two things to press.
 	if (pet.Count or 1) > 1 then
 		local badge = kit:tag("Count", "x" .. pet.Count, 56)
+		-- WHITE, not the shop's gold Tag. On a plate the gold had a saturated field
+		-- to sit against; floating over the panel it reads as a loose yellow mark.
+		badge.TextColor3 = WHITE
 		badge.AnchorPoint = Vector2.new(1, 0)
 		badge.Position = UDim2.fromScale(1.0, 0.01)
 		badge.Size = UDim2.fromScale(0.52, 0.2)
@@ -577,6 +670,20 @@ local function makeTile(pet, order)
 	-- reads on touch, where there is no hover at all.
 	local pop = Instance.new("UIScale")
 	pop.Parent = tile
+
+	-- Entrance: each tile springs up in turn. The delay is CAPPED rather than
+	-- order * step, because rebuildGrid also runs on every keystroke in the search
+	-- box — uncapped, the twentieth match would sit invisible for a third of a
+	-- second after the letter that found it, which reads as lag, not as polish.
+	pop.Scale = 0
+	task.delay(math.min(order * ENTRY_STEP, ENTRY_MAX), function()
+		if not pop.Parent then return end
+		TweenService:Create(
+			pop,
+			TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Scale = 1 }
+		):Play()
+	end)
 
 	UIKit.audible(tile)
 	tile.MouseEnter:Connect(function()
@@ -667,9 +774,10 @@ headLabel.AutomaticSize = Enum.AutomaticSize.X
 headLabel.Size = UDim2.new(0, 0, 1, 0)
 headLabel.LayoutOrder = 1
 headLabel.Text = INV.EquippedHeader
--- Dark navy on the pale panel. This one is NOT outlined white: it sits on the
--- panel body rather than on a saturated tile, where navy is the stronger read.
-headLabel.TextColor3 = P.BodyText
+-- BLACK, not the palette's navy. The reference's header is plainly black, and on
+-- a panel this pale the navy read as a washed-out grey rather than as a heading.
+-- Not outlined: it sits on the panel body, not on a saturated tile.
+headLabel.TextColor3 = P.Ink
 headLabel.FontFace = FONT
 headLabel.ZIndex = 54
 headLabel.Parent = headRow
@@ -779,7 +887,13 @@ function rebuildGrid()
 	local q = string.lower(box.Text)
 	local n = 0
 	for _, pet in ipairs(sortedPets()) do
-		if q == "" or string.find(string.lower(pet.Name), q, 1, true) then
+		-- EQUIPPED PETS ARE NOT REPEATED HERE. They already have the shelf above
+		-- the divider, and drawing them again made the first grid row a pixel copy
+		-- of the shelf row — which reads as a rendering bug, not as a roster. The
+		-- divider now separates two disjoint sets: what is equipped, and the rest.
+		if not pet.Equipped
+			and (q == "" or string.find(string.lower(pet.Name), q, 1, true))
+		then
 			n += 1
 			makeTile(pet, n).Parent = grid
 		end

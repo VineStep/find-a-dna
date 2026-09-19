@@ -57,6 +57,13 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
   `assetFetchFailedNoExperienceAccess`. Reuse the verified free Creator Store ids
   already in GameConfig. `search_asset` wrongly reports `creatorType: User` for
   this place — don't trust it.
+- **Pets float; they do not sit on tiles.** The inventory's pets have no plate,
+  no ink outline and no gloss — just a soft-edged circle
+  (`GameConfig.Inventory.PetBlob`) tinted with the rarity colour behind them, on
+  a plain white panel. An earlier pass gave each one a bevelled shop-style tile
+  and `InventoryPanel` the standard studded sheet; both were rejected — eight
+  saturated plates in a row is a wall of colour and the pet stops being the
+  subject. `HUDController.STUDS_OVERRIDE` carries `InventoryPanel = { Skip = true }`.
 - **Pet art is a `ViewportFrame` of the real model, not a 2D icon.** That is the
   way around the upload block: `ReplicatedStorage.PetModels` holds six rigged
   pets cloned from `Workspace.Pets` (`Chicken`, `Dog`, `Cat`, `Scorpion`,
@@ -89,6 +96,24 @@ context (~45K tokens for this place). Instead:
 
 `GetDescendants()` includes `Workspace.Bannthemann` — a test avatar, two copies,
 240 instances of stock rig. Exclude it; it is not game content.
+
+## Pushing source back INTO Studio
+
+The same trick in reverse, and worth setting up the moment you expect more than
+one edit round — `multi_edit` needs an exact `old_string` per change, and a
+restyling pass is a dozen of them.
+
+```
+cd src && python3 -m http.server 8742 --bind 127.0.0.1 &
+```
+
+Then one `execute_luau` per round: set `HttpEnabled = true`, `RequestAsync` each
+file from `http://127.0.0.1:8742/<path under src>`, assign `.Source`, restore
+`HttpEnabled`. The repo is then the source of truth and Studio is the mirror —
+check byte counts against `wc -c` after every push.
+
+Port **8731 is already taken** by the POST receiver from the export side, which
+answers `GET` with `501`. Pick another.
 
 ## What cannot be exported as text
 

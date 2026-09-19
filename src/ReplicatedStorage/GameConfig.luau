@@ -312,18 +312,22 @@ return {
 			{ Key = "Name",  Label = "A-Z" },
 		},
 
-		-- The left rail, top to bottom, overhanging the panel's left edge. A Locked
-		-- tile draws desaturated with a "?" where its icon would go — the reference
-		-- puts a padlock there and we have no padlock (see Sorts above).
+		-- The left rail, top to bottom, overhanging the panel's left edge. The cell
+		-- height is DERIVED from how many entries are here, so adding or removing
+		-- one needs no other change.
+		--
+		-- The two Locked "?" placeholders are gone. A Locked tile drew desaturated
+		-- with a "?" standing in for a padlock this place has no glyph for, and two
+		-- question marks in a column of six icons read as missing art rather than
+		-- as locked content. The Locked field is still honoured below if a real
+		-- padlock ever arrives.
 		Rail = {
 			{ Name = "Pets",    Icon = "rbxassetid://128442519585600" },
 			{ Name = "Bag",     Icon = "rbxasset://textures/ui/Backpack/Backpack.png" },
 			{ Name = "Potions", Icon = "rbxassetid://743807896" },
 			{ Name = "Index",   Icon = "rbxassetid://8002852553" },
-			{ Name = "Locked1", Locked = true },
 			{ Name = "Boosts",  Icon = "rbxassetid://97906064855506" },
 			{ Name = "Eggs",    Icon = "rbxassetid://7106672194" },
-			{ Name = "Locked2", Locked = true },
 		},
 		-- Which rail tile starts selected. Only this one has content behind it; the
 		-- rest are inert on purpose, because there is nothing to show yet.
@@ -349,6 +353,16 @@ return {
 		-- PrimaryPart, PivotTo(CFrame.new()). The viewport frames it off its own
 		-- bounding box, so size does not matter — Bigfoot is 25 studs and ghostly 4.
 		PetModelFolder = "PetModels",
+
+		-- The soft-edged blob behind a floating pet, tinted with the pet's rarity
+		-- colour. Neutral white-on-transparent so one image serves all five
+		-- rarities — ImageColor3 multiplies, so a tinted source could only ever be
+		-- darkened towards its own hue.
+		-- Verified to load in this group-owned place (PreloadAsync: Success).
+		-- A soft-edged CIRCLE. The soft-edged square (1316045217, also verified)
+		-- filled the cell corner to corner and read as the plastic plate this was
+		-- meant to replace, only blurrier.
+		PetBlob = "rbxassetid://2851920938",
 
 		-- One entry is one STACK. Power is the number across the tile's bottom; omit
 		-- it and the tile draws "??", which is what the reference does for its rarest
