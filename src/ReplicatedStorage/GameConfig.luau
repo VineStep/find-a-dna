@@ -622,6 +622,23 @@ return {
 		Speeds = { 16, 32, 64, 120, 200 },
 		FlySpeed = 70,
 
+		-- Jump, also server-applied. Roblox has two jump models and a Humanoid
+		-- obeys whichever UseJumpPower selects, so the server sets that too or
+		-- these numbers are read and ignored.
+		Jumps = { 50, 80, 120, 200, 350 },
+
+		-- GRAVITY IS GLOBAL — workspace.Gravity is one number for the whole
+		-- server, so this is the one control here that changes how the game plays
+		-- for every other player at once. 196.2 is Roblox's default and is first
+		-- in the list so the way back is the obvious press.
+		Gravities = { 196.2, 100, 50, 15, 0 },
+
+		-- Which music zone to force, cycling through MusicController's own tracks
+		-- plus an "Auto" that hands control back to the position poll. Client-side
+		-- like the music itself: what one admin hears is nobody else's business,
+		-- and this is for checking a track without walking to the zone.
+		MusicZones = { "Auto", "Overworld", "Cave", "Mineshaft" },
+
 		-- Time of day, as presses rather than a slider: the panel needs no drag
 		-- logic for a control with four useful values. Server-set, so it changes
 		-- the world for everybody.

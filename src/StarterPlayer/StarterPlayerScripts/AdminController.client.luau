@@ -395,7 +395,14 @@ local Z_TEXT = 57
 -- only has to carry the shape.
 local function ensure(parent, name, class)
 	local found = parent:FindFirstChild(name)
-	if found and found:IsA(class) then return found end
+	if found then
+		if found:IsA(class) then return found end
+		-- WRONG CLASS: destroy it. Returning a new instance under the same name
+		-- while the old one is still parented leaves TWO children called Rows, and
+		-- every FindFirstChild after that is a coin toss. This happened for real
+		-- when Rows went from a Frame to a ScrollingFrame.
+		found:Destroy()
+	end
 	local made = Instance.new(class)
 	made.Name = name
 	made.Parent = parent
@@ -481,7 +488,19 @@ local kit = UIKit.chrome(panel, {
 UIKit.rainbow(kit.title, panel)
 
 ----------------------------------------------------------------------- rows
-local list = ensure(panel, "Rows", "Frame")
+-- A SCROLL, not a frame. The panel started with four rows and dividing the
+-- available height by the row count was fine for that; at nine it makes each row
+-- a sliver. A fixed row height plus a scroll is both less arithmetic and the
+-- thing that lets the list keep growing.
+local list = ensure(panel, "Rows", "ScrollingFrame")
+list.CanvasSize = UDim2.new()
+list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+list.ScrollingDirection = Enum.ScrollingDirection.Y
+list.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+list.ScrollBarThickness = 6
+list.ScrollBarImageColor3 = P.Ink:Lerp(P.Panel, 0.25)
+list.ScrollBarImageTransparency = 0.15
+list.BorderSizePixel = 0
 list.BackgroundTransparency = 1
 list.Position = UDim2.fromScale(0.05, 0.17)
 list.Size = UDim2.fromScale(0.9, 0.77)
@@ -649,10 +668,14 @@ do
 	wrap.Parent = plate
 end
 
------------------------------------------------------------------------ 2. fly
-do
-	local plate = makeRow(2, "Fly", "Space up, Shift down. Stick works too.")
+-- ONE toggle pill, used by Fly, Noclip and God. It reads its state through a
+-- function rather than holding it: every one of these three can be turned off by
+-- something other than the pill — a respawn stops the flight, and the server owns
+-- god — so a pill that remembered its own state would drift out of step with the
+-- thing it claims to show.
+local OFF_PAIR = { P.Close, P.CloseDeep }
 
+local function makeTogglePill(plate, isOn, onFlip)
 	local pill = Instance.new("TextButton")
 	pill.Name = "Toggle"
 	pill.AutoButtonColor = false
@@ -672,11 +695,11 @@ do
 	UIKit.audible(pill)
 	UIKit.feel(pill)
 
-	local OFF_PAIR = { P.Close, P.CloseDeep }
 	local grad
 	local function paint()
-		local pair = flying and P.Green or OFF_PAIR
-		pill.Text = flying and "ON" or "OFF"
+		local on = isOn() and true or false
+		local pair = on and P.Green or OFF_PAIR
+		pill.Text = on and "ON" or "OFF"
 		pill.BackgroundColor3 = pair[1]
 		-- An instance takes one UIGradient, so the old one goes before the new
 		-- colour's is applied or the pill keeps the ramp it was built in.
@@ -685,16 +708,23 @@ do
 	end
 
 	pill.MouseButton1Click:Connect(function()
-		if flying then
-			stopFly()
-		else
-			startFly()
-		end
+		onFlip(not (isOn() and true or false))
 		paint()
 	end)
 
 	paint()
 	pill.Parent = plate
+	return paint
+end
+
+----------------------------------------------------------------------- 2. fly
+do
+	local plate = makeRow(2, "Fly", "Space up, Shift down. Stick works too.")
+	local paint = makeTogglePill(plate,
+		function() return flying end,
+		function(want)
+			if want then startFly() else stopFly() end
+		end)
 
 	-- The flag can come down without the pill being touched — a respawn stops the
 	-- flight — so the pill follows the flag rather than assuming it owns it.
@@ -703,12 +733,97 @@ do
 	end)
 end
 
---------------------------------------------------------------------- 3. speed
+--------------------------------------------------------------------- 3. noclip
+-- Client-side, for the same reason fly is: the client owns its own character's
+-- physics, so this is where it has to happen and gating it on the server would
+-- buy nothing an exploiter cannot already do.
+--
+-- CanCollide, not a collision group: a group would need the server to define it,
+-- and every part has to be re-cleared anyway whenever the character changes.
 do
-	local plate, sub = makeRow(3, "Speed", "Applied by the server, so it is real.")
-	local speeds = ADMIN.Speeds or { 16 }
-	local at = 1
+	local plate = makeRow(3, "Noclip", "Walk through the world.")
+	local noclip = false
+	local clipConn
+
+	local function clear(char)
+		for _, d in ipairs(char:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.CanCollide = false
+			end
+		end
+	end
+
+	local function stop()
+		noclip = false
+		if clipConn then
+			clipConn:Disconnect()
+			clipConn = nil
+		end
+		local char = player.Character
+		if char then
+			for _, d in ipairs(char:GetDescendants()) do
+				-- HumanoidRootPart is never collidable to begin with, and forcing it
+				-- true wedges the character in whatever it is standing in.
+				if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+					d.CanCollide = true
+				end
+			end
+		end
+	end
+
+	local function start()
+		local char = player.Character
+		if not char then return end
+		clear(char)
+		-- Accessories and tools arrive after the character does, and each one
+		-- brings a collidable part with it.
+		clipConn = char.DescendantAdded:Connect(function(d)
+			if noclip and d:IsA("BasePart") then
+				d.CanCollide = false
+			end
+		end)
+		noclip = true
+	end
+
+	local paint = makeTogglePill(plate,
+		function() return noclip end,
+		function(want)
+			if want then start() else stop() end
+		end)
+
+	player.CharacterAdded:Connect(function()
+		-- A new character comes back fully collidable, so the flag goes down with
+		-- the old one rather than claiming to still be on.
+		noclip = false
+		if clipConn then
+			clipConn:Disconnect()
+			clipConn = nil
+		end
+		task.defer(paint)
+	end)
+end
+
+----------------------------------------------------------------------- 4. god
+-- The SERVER owns this one: damage is applied wherever the damager runs, so a
+-- client refusing to lower its own health has only persuaded itself. The pill
+-- reads the attribute the server publishes rather than what it last asked for.
+do
+	local plate = makeRow(4, "God", "Unkillable. The server enforces it.")
+	local paint = makeTogglePill(plate,
+		function() return player:GetAttribute("AdminGod") == true end,
+		function(want)
+			command:FireServer("God", want)
+		end)
+	player:GetAttributeChangedSignal("AdminGod"):Connect(function()
+		task.defer(paint)
+	end)
+end
+
+-- ONE stepper, used by Speed, Jump and Gravity: a minus key, a value, a plus
+-- key. The three differ only in their list of values and what they send.
+local function makeStepper(plate, sub, values, format, send)
 	local resting = sub.Text
+	local at = 1
 
 	local value = Instance.new("TextLabel")
 	value.Name = "Value"
@@ -716,7 +831,7 @@ do
 	value.AnchorPoint = Vector2.new(0.5, 0.5)
 	value.Position = UDim2.fromScale(0.83, 0.5)
 	value.Size = UDim2.fromScale(0.14, 0.5)
-	value.Text = tostring(speeds[at])
+	value.Text = format(values[at])
 	value.TextColor3 = P.BodyText
 	value.FontFace = FONT
 	value.TextScaled = true
@@ -725,12 +840,17 @@ do
 	value.Parent = plate
 
 	local function apply()
-		value.Text = tostring(speeds[at])
-		command:FireServer("Speed", speeds[at])
-		sub.Text = ("WalkSpeed %d"):format(speeds[at])
-		task.delay(2.6, function()
-			if sub.Text == ("WalkSpeed %d"):format(speeds[at]) then sub.Text = resting end
-		end)
+		value.Text = format(values[at])
+		send(values[at])
+		-- send() may have put its own message on the blurb, so an empty format
+		-- must not overwrite it with nothing.
+		local said = format(values[at])
+		if said ~= "" then
+			sub.Text = said
+			task.delay(2.6, function()
+				if sub.Text == said then sub.Text = resting end
+			end)
+		end
 	end
 
 	local minus = makeKey(plate, "-", 0.09, 0.73, { P.Close, P.CloseDeep })
@@ -740,14 +860,40 @@ do
 		apply()
 	end)
 	plus.MouseButton1Click:Connect(function()
-		at = math.min(#speeds, at + 1)
+		at = math.min(#values, at + 1)
 		apply()
 	end)
 end
 
+--------------------------------------------------------------------- 5. speed
+do
+	local plate, sub = makeRow(5, "Speed", "Applied by the server, so it is real.")
+	makeStepper(plate, sub, ADMIN.Speeds or { 16 },
+		function(v) return tostring(v) end,
+		function(v) command:FireServer("Speed", v) end)
+end
+
+---------------------------------------------------------------------- 6. jump
+do
+	local plate, sub = makeRow(6, "Jump", "Server sets UseJumpPower with it.")
+	makeStepper(plate, sub, ADMIN.Jumps or { 50 },
+		function(v) return tostring(v) end,
+		function(v) command:FireServer("Jump", v) end)
+end
+
+------------------------------------------------------------------- 7. gravity
+do
+	local plate, sub = makeRow(7, "Gravity", "GLOBAL. Changes physics for everyone.")
+	makeStepper(plate, sub, ADMIN.Gravities or { 196.2 },
+		-- No decimal on the display: 196.2 is the only value with one and "196"
+		-- reads better in a 14px box than "196.2" does.
+		function(v) return tostring(math.floor(v + 0.5)) end,
+		function(v) command:FireServer("Gravity", v) end)
+end
+
 ---------------------------------------------------------------------- 4. time
 do
-	local plate = makeRow(4, "Time", "Live follows real world time, for everyone.")
+	local plate = makeRow(8, "Time", "Live follows real world time, for everyone.")
 	local times = ADMIN.Times or {}
 	-- Right-aligned as a group: the rightmost key sits where every other row's
 	-- control sits, and the rest run back from it. Narrower now that there are
@@ -766,6 +912,60 @@ do
 			-- "Live" as a string, a number for a pinned hour. The server accepts
 			-- exactly those two and ignores anything else.
 			command:FireServer("Time", t.Live and "Live" or t.Clock)
+		end)
+	end
+end
+
+--------------------------------------------------------------------- 9. music
+-- CLIENT-SIDE, through the BindableFunction MusicController already publishes —
+-- no remote, because what one admin has playing in their own ears is nobody
+-- else's business. It is for auditioning a track without walking to the zone.
+--
+-- "Auto" hands control back to the position poll, which overwrites any forced
+-- track on its next tick. Forcing is therefore a momentary thing by design, not
+-- a lock; a lock would need a flag in MusicController and there is no call for it.
+do
+	local plate, sub = makeRow(9, "Music", "Auditions a track. Auto to release.")
+	local zones = ADMIN.MusicZones or { "Auto" }
+	local api = game:GetService("SoundService"):FindFirstChild("SetMusicZone")
+	if not api then
+		-- MusicController returns early when it has no config, and the panel
+		-- should say which control is dead rather than offer a live-looking one.
+		sub.Text = "MusicController is not running."
+		return
+	end
+
+	-- KEYS, not a stepper, for the same reason the Time row uses them: there are
+	-- four values and each is a WORD. A stepper would have to fit "Overworld"
+	-- into the 14%-wide value box every other row puts a two-digit number in.
+	local resting = sub.Text
+	local w = 0.135
+	local gap = 0.015
+	for i, zone in ipairs(zones) do
+		local fromRight = #zones - i
+		local x = 0.97 - w / 2 - fromRight * (w + gap)
+		local pair = (zone == "Auto") and P.Green
+			or (zone == "Cave") and P.Cyan
+			or (zone == "Mineshaft") and P.Gold
+			or P.Violet
+		local key = makeKey(plate, zone, w, x, pair)
+		key.MouseButton1Click:Connect(function()
+			local said
+			if zone == "Auto" then
+				-- Releases the hold, and MusicController applies the real zone at
+				-- once rather than leaving silence until its next poll.
+				api:Invoke("Auto")
+				said = "Back to where you are standing."
+			else
+				-- Holds until Auto: a forced track used to last one poll tick, which
+				-- is 0.4s and inaudible.
+				api:Invoke(zone)
+				said = "Playing " .. zone .. "."
+			end
+			sub.Text = said
+			task.delay(2.6, function()
+				if sub.Text == said then sub.Text = resting end
+			end)
 		end)
 	end
 end
@@ -916,9 +1116,11 @@ local function relayout()
 	local k = math.max(panel:FindFirstChild("Scale") and panel.Scale.Scale or 1, 0.01)
 	local h = list.AbsoluteSize.Y / k
 	if h <= 0 then return end
-	local n = math.max(#rows, 1)
-	local gap = math.floor(h * 0.05)
-	local rh = math.max(math.floor((h - gap * (n - 1)) / n), 1)
+	-- FIXED, and sized so four rows fill the window: the list scrolls past that
+	-- rather than shrinking every row to fit. Dividing by #rows is what made a
+	-- nine-row panel unreadable.
+	local gap = math.floor(h * 0.04)
+	local rh = math.max(math.floor((h - gap * 3) / 4), 1)
 	listLayout.Padding = UDim.new(0, gap)
 	for _, plate in ipairs(rows) do
 		plate.Size = UDim2.new(1, 0, 0, rh)

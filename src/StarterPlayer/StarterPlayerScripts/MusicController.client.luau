@@ -113,11 +113,33 @@ local function switchTo(name)
 	current = name
 end
 
--- Exposed so the zone can be forced — for testing from the console, and for
--- whatever eventually wants a stinger for a boss or a cutscene.
+-- Exposed so the zone can be forced — the admin panel's Music row auditions a
+-- track with it, and it is what a boss stinger or a cutscene would use.
+--
+-- A FORCED ZONE HOLDS. It did not, at first: Invoke set the track and the
+-- position poll below put it straight back on its next tick 0.4s later, so the
+-- admin row pressed Cave and heard Overworld. A control that does nothing
+-- perceptible is worse than no control. While forced is set the poll stands
+-- down; Invoke("Auto") — or nil — clears it and hands the poll back.
+local forced = nil
+
 local api = Instance.new("BindableFunction")
 api.Name = "SetMusicZone"
 api.OnInvoke = function(name)
+	if name == nil or name == "Auto" then
+		forced = nil
+		-- Apply the real zone NOW rather than waiting up to Poll seconds for it.
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if root then
+			switchTo(trackFor(root.Position))
+		end
+		return "Auto"
+	end
+	if not tracks[name] then
+		return current
+	end
+	forced = name
 	switchTo(name)
 	return current
 end
@@ -130,10 +152,14 @@ switchTo(MUSIC.Default)
 
 task.spawn(function()
 	while true do
-		local char = player.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if root then
-			switchTo(trackFor(root.Position))
+		-- Stands down while a zone is forced. Without this the poll is in a fight
+		-- with whoever called SetMusicZone and wins it every time.
+		if not forced then
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root then
+				switchTo(trackFor(root.Position))
+			end
 		end
 		task.wait(MUSIC.Poll or 0.4)
 	end

@@ -135,6 +135,74 @@ local function applySpeed(player, value)
 	player:SetAttribute("AdminWalkSpeed", speed)
 end
 
+------------------------------------------------------------------ god mode
+-- NOT MaxHealth = inf, which is the obvious version and breaks every health bar
+-- in the game including Roblox's own. A flag plus a HealthChanged connection
+-- restores the bar to full instead, so the character is unkillable and still
+-- reads as a normal 100hp humanoid.
+--
+-- Server-side because it has to be: damage is applied wherever the damager runs,
+-- and a client that refuses to lower its own health has only lied to itself.
+local godOn = {}
+local godConns = {}
+
+local function bindGod(player, char)
+	if godConns[player] then
+		godConns[player]:Disconnect()
+		godConns[player] = nil
+	end
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	godConns[player] = hum.HealthChanged:Connect(function(health)
+		if godOn[player] and health < hum.MaxHealth then
+			hum.Health = hum.MaxHealth
+		end
+	end)
+	if godOn[player] then
+		hum.Health = hum.MaxHealth
+	end
+end
+
+local function applyGod(player, value)
+	godOn[player] = value and true or false
+	local char = player.Character
+	bindGod(player, char)
+	-- Published so the panel's pill can be repainted from the truth rather than
+	-- from what the client last asked for.
+	player:SetAttribute("AdminGod", godOn[player])
+end
+
+------------------------------------------------------------------- jump
+local function applyJump(player, value)
+	if type(value) ~= "number" or value ~= value then return end
+	local jumps = ADMIN.Jumps or { 50 }
+	local lo, hi = jumps[1], jumps[1]
+	for _, v in ipairs(jumps) do
+		lo = math.min(lo, v)
+		hi = math.max(hi, v)
+	end
+	local power = math.clamp(value, lo, hi)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		-- A Humanoid obeys JumpPower or JumpHeight depending on this flag, and
+		-- newer places default it to false — setting JumpPower alone does nothing
+		-- at all there, which is a silent no-op rather than an error.
+		hum.UseJumpPower = true
+		hum.JumpPower = power
+	end
+	player:SetAttribute("AdminJumpPower", power)
+end
+
+----------------------------------------------------------------- gravity
+-- GLOBAL, and the only control here that changes physics for everybody at once.
+-- Clamped well away from negatives: a negative gravity throws every player in the
+-- server at the skybox with no way back short of a rejoin.
+local function applyGravity(value)
+	if type(value) ~= "number" or value ~= value then return end
+	workspace.Gravity = math.clamp(value, 0, 500)
+end
+
 -- GLOBAL TIME. The sky follows real-world UTC, set on the server, so it is the
 -- same hour for every player in the server and the same hour as the world outside
 -- it. This is the default state; an admin pressing Dawn/Noon/Night PINS it, and
@@ -177,6 +245,12 @@ command.OnServerEvent:Connect(function(player, name, value)
 
 	if name == "Speed" then
 		applySpeed(player, value)
+	elseif name == "God" then
+		applyGod(player, value == true)
+	elseif name == "Jump" then
+		applyJump(player, value)
+	elseif name == "Gravity" then
+		applyGravity(value)
 	elseif name == "Time" then
 		-- Either a number or the literal "Live"; applyTime rejects anything else.
 		if type(value) == "number" or value == "Live" then
@@ -190,17 +264,28 @@ end)
 -------------------------------------------------------------------- lifecycle
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(char)
-		local speed = player:GetAttribute("AdminWalkSpeed")
-		if not speed then return end
+		-- Everything admin-applied is re-applied on respawn, or the panel's state
+		-- silently stops being true the first time the character dies.
 		local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
-		if hum then
-			hum.WalkSpeed = speed
+		if not hum then return end
+		local speed = player:GetAttribute("AdminWalkSpeed")
+		if speed then hum.WalkSpeed = speed end
+		local jump = player:GetAttribute("AdminJumpPower")
+		if jump then
+			hum.UseJumpPower = true
+			hum.JumpPower = jump
 		end
+		bindGod(player, char)
 	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	-- Keyed by the Player instance, so without this the table holds a reference to
+	-- Keyed by the Player instance, so without this the tables hold a reference to
 	-- every player who has ever joined for the life of the server.
 	lastAnnounce[player] = nil
+	godOn[player] = nil
+	if godConns[player] then
+		godConns[player]:Disconnect()
+		godConns[player] = nil
+	end
 end)

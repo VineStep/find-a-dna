@@ -164,8 +164,28 @@ read before changing a constant. Owned by rblx-orchestrator; other agents read.
 
 ## Admin
 
-A **crown key in the top-right**, or `F2`, opens `HUD.AdminPanel` — global
-message, fly, walk speed, time of day. Not a seventh HUD tile: that grid is a
+A **crown key in the top-right** (bare artwork, no plate — the treatment every
+HUD tile gets), or `F2`, opens `HUD.AdminPanel`. Nine rows, in a **scroll**: a
+fixed row height sized so four fill the window, because dividing the available
+height by the row count is fine at four rows and makes each one a sliver at nine.
+
+  Global Message  server broadcast, [head] USER: TEXT
+  Fly / Noclip    client — the client owns its character's physics
+  God             SERVER — damage lands wherever the damager runs
+  Speed / Jump    server-applied, clamped to the configured list
+  Gravity         server, and GLOBAL: one number for the whole place
+  Time            real-world UTC, or pinned
+  Music           client, auditions a track
+
+God is a flag plus a `HealthChanged` connection, **not** `MaxHealth = inf`, which
+breaks every health bar including Roblox's own. Jump sets `UseJumpPower` as well
+as `JumpPower` — newer places default that flag to false, where setting the power
+alone is a silent no-op. The pill reads the server's `AdminGod` attribute rather
+than what the client last asked for.
+
+Forcing a music zone **holds** until `Auto`. It did not at first: the position
+poll put the real zone back 0.4s later, so pressing Cave in the overworld played
+Overworld. A control that does nothing perceptible is worse than no control. Not a seventh HUD tile: that grid is a
 full 2x3, a seventh cell reflows it for every player, and it would be carrying a
 control almost nobody can open. The key is built at runtime *below* the admin
 check, so a non-admin is never sent it — which also keeps it out of the Edit
