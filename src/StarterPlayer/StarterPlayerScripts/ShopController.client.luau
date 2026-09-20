@@ -76,6 +76,13 @@ local EDGE = 0.02
 local GUTTER = 0.014        -- of content width
 local CARD_ASPECT = 1.10    -- w : h
 local SECTION_H = 0.22      -- section header height, of card height
+-- Empty space ABOVE a section header, of card height. Every header except the first
+-- one in the scroll gets it. Without it a shelf's last row of cards and the next
+-- shelf's title are separated only by the list's own 0.05 padding, so "Limited
+-- Offers" and "More Permanent Passes" read as one continuous run of product rather
+-- than as two shelves. The gap goes above only — put it around the header and it
+-- pushes the title away from the grid it names.
+local SECTION_GAP = 0.16
 local SECTION_TEXT = 0.16   -- of card height
 -- Of card height. Was 0.26, when the banner was one left-aligned title over one
 -- sub-line; it now carries a centred stack of three rows flanked by a mascot and a
@@ -91,10 +98,12 @@ local MIN_CELL_H = 160
 -- panel. The grey outline outside it is the Shadow frame's own stroke, sized off
 -- this, because only one UIStroke per instance takes effect.
 local RING = 5.5
--- The Robux mark, as a multiple of the price's TextSize. Above 1 on purpose: the
--- number carries a heavy ink outline and the mark carries none, so a mark matched
--- to the bare glyph height sits visibly light next to it.
-local MARK_SCALE = 1.32
+-- The Robux mark, as a multiple of the price's TextSize. Still above 1 — a mark
+-- matched to the bare glyph height sits small beside a number — but lower than the
+-- 1.32 it was: that figure also compensated for a mark drawn with no outline at all
+-- next to a heavily outlined number, and robuxMark's stamped ink contour now carries
+-- that weight. At 1.32 with the contour the coin was bigger than the digits.
+local MARK_SCALE = 1.15
 -- Where a card's product icon sits, and therefore where its sunburst radiates from.
 local ICON_X, ICON_Y = 0.28, 0.5
 
@@ -306,14 +315,28 @@ end
 -- So the inset is only safe because the source is transparent. Put an opaque burst back
 -- in GameConfig and the discoloured corners come back with it.
 local RAYS_INSET = 0.34 -- of the corner radius; 0.293 is the exact minimum
-local RAYS_ZOOM = 1.8
 -- This sets how much LIGHTER the rays make the surface, not how strong an image reads:
 -- the source is white and the card underneath supplies the hue. Judge it on a card, not
 -- on the banner — the banner is darker and shows the rays at roughly half this strength.
 local RAYS_FADE = 0.25
+-- The burst is drawn far bigger than its host and CROPPED by the wrapper. That is
+-- what lets it be AIMED at the product icon and still cover the element.
+--
+-- It does not spin, and that is deliberate. A rotated GuiObject is not clipped —
+-- not by its own wrapper once it is a few levels deep, and not by the scroll — so
+-- a spinning burst either escapes its card or has to shrink to a circle that fits
+-- unaided, and a circle that fits is far smaller than the aimed, cropped burst
+-- below. Both were tried on this panel and both were worse than a still one. The
+-- only burst that turns in this game is the shop TILE's, in HUDController, where
+-- it sits alone in its own group with nothing to escape into.
+-- 2.6, up from 1.8, because at 1.8 the rays on a card were barely there. More
+-- zoom shows LESS of the source and more of each ray: the burst's spokes converge
+-- toward its middle, so magnifying it makes the few that remain in frame wider and
+-- longer instead of packing more of them into the card. The plate below passes its
+-- own figure and is unaffected.
+local RAYS_ZOOM = 2.6
 
--- cx, cy place the burst's own centre in the element's space.
-local function rays(obj, grad, cornerScale, cx, cy)
+local function rays(obj, grad, cornerScale, cx, cy, zoom)
 	if not SHOP.Rays then return nil end
 	local clip = Instance.new("Frame")
 	clip.Name = "Rays"
@@ -323,36 +346,46 @@ local function rays(obj, grad, cornerScale, cx, cy)
 	clip.ClipsDescendants = true
 	clip.ZIndex = obj.ZIndex
 
-	-- No UICorner here: it would not clip anything (see above). The inset IS the
-	-- mechanism, and it is recomputed whenever the element resizes, because the radius
-	-- it comes from is a fraction of the element's own shorter side — which changes on
-	-- every relayout and on every hover pop.
-	local function fit()
-		local sz = obj.AbsoluteSize
-		local d = RAYS_INSET * (cornerScale or 0.18) * math.min(sz.X, sz.Y)
-		clip.Size = UDim2.new(1, -d * 2, 1, -d * 2)
-	end
-	obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	fit()
-
 	local im = Instance.new("ImageLabel")
 	im.Name = "Burst"
 	im.BackgroundTransparency = 1
 	im.AnchorPoint = Vector2.new(0.5, 0.5)
 	im.Position = UDim2.fromScale(cx or 0.5, cy or 0.5)
-	im.Size = UDim2.fromScale(RAYS_ZOOM, RAYS_ZOOM)
 	im.Image = SHOP.Rays
 	im.ImageTransparency = RAYS_FADE
-	-- Fit, not Crop. The burst is radial and the box it is given has the element's
-	-- aspect rather than a square one; Crop would fill that box and draw an ELLIPTICAL
-	-- burst with the rays stretched along the wider axis. Fit keeps it circular and
-	-- centres it in the box, which is what puts its middle on (cx, cy).
+	-- Fit, on a box that fit() keeps SQUARE, so the burst stays circular. Crop would
+	-- fill a non-square box and stretch the rays along its wider axis.
 	im.ScaleType = Enum.ScaleType.Fit
 	im.ZIndex = obj.ZIndex
 	-- Deliberately NO bevel() here. The source is white, and white multiplied by the
 	-- element's own ramp is exactly the element's own colour — the rays would vanish
 	-- into it. The card underneath carries the hue; this only lightens.
 	im.Parent = clip
+
+	-- No UICorner on the clip: it would not clip anything. The inset IS the
+	-- mechanism, and it is recomputed whenever the element resizes, because the
+	-- radius it comes from is a fraction of the element's own shorter side — which
+	-- changes on every relayout and on every hover pop.
+	--
+	-- The burst box is sized here too, SQUARE and in PIXELS off the clip's LONGER
+	-- axis. It used to be UDim2.fromScale(RAYS_ZOOM, RAYS_ZOOM), which is fine on a
+	-- near-square card and throws the zoom away on the 2.5:1 offer plate: Fit takes
+	-- the SMALLER side of the box, so a 721x273 clip at zoom 1.8 gave a 1298x491 box
+	-- and only a 491px circle. Aimed at the egg 631px from the far edge, a 245px
+	-- radius stopped dead in open plate on one side and was sliced flat by the border
+	-- on the other — rays ending in a mid-air arc and in a straight cut, which is
+	-- what "cuts off weird" looks like. Square off the longer axis gives a 1298px
+	-- circle, radius 649, clearing the 631 it has to reach and bleeding off every
+	-- edge the way it always did on a card.
+	local function fit()
+		local sz = obj.AbsoluteSize
+		local d = RAYS_INSET * (cornerScale or 0.18) * math.min(sz.X, sz.Y)
+		clip.Size = UDim2.new(1, -d * 2, 1, -d * 2)
+		local s = math.max(1, math.floor((zoom or RAYS_ZOOM) * math.max(sz.X, sz.Y)))
+		im.Size = UDim2.fromOffset(s, s)
+	end
+	obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	fit()
 
 	-- Parented FIRST, before the halftone, the gloss and every label, because ties on
 	-- ZIndex are broken by child order and this has to sit under all of them.
@@ -370,7 +403,7 @@ end
 -- Built exactly like rays(): 1:1, ScaleType.Crop, its own UICorner, no wrapper. A
 -- UICorner DOES round an ImageLabel's image; what it does not round is a clip region.
 -- This layer is where that was established, and rays() was rebuilt to match it.
-local function halftone(obj, cornerScale, strength)
+local function halftone(obj, cornerScale, strength, tileFrac)
 	if not SHOP.Halftone then return nil end
 	local im = Instance.new("ImageLabel")
 	im.Name = "Halftone"
@@ -383,9 +416,31 @@ local function halftone(obj, cornerScale, strength)
 	-- 0.82 and nearly vanished on a real 272px card — the pattern's scale shrinks with
 	-- the element but the eye's threshold does not.
 	im.ImageTransparency = strength or 0.76
-	-- Crop, not Fit: Fit letterboxes a square source inside a wide element and leaves
-	-- the dots floating in a band with bare gradient either side of them.
-	im.ScaleType = Enum.ScaleType.Crop
+	if tileFrac then
+		-- TILED, because this element is WIDER than the source is big. Crop scales a
+		-- square source to COVER, so on the 745x297 offer plate the 512px sheet is
+		-- blown up to 1.46x and its dots stop being a tone and become spots — the one
+		-- element in the shop where that happens, which is why it is the only one
+		-- asking for this. A 272px card DOWNscales the same sheet to 0.53x and is
+		-- fine on Crop. Tiling redraws the source at a chosen pitch instead of
+		-- stretching it once, so the dots come back to native resolution or finer.
+		-- This sheet tiles without a visible seam; checked on the plate at 100 and
+		-- 150 before settling.
+		im.ScaleType = Enum.ScaleType.Tile
+		-- A FIXED pixel pitch would hold on this monitor and give under three dots
+		-- across a phone-sized plate, so the pitch comes off cellH in the layout pass
+		-- like every other size in this file. Square in PIXELS, which is why it is one
+		-- number and not a UDim2 scale: scale is taken per-axis, of a box that is not
+		-- square, and the dots would come out elliptical.
+		table.insert(hooks, function()
+			local s = math.max(8, math.floor(cellH * tileFrac))
+			im.TileSize = UDim2.fromOffset(s, s)
+		end)
+	else
+		-- Crop, not Fit: Fit letterboxes a square source inside a wide element and
+		-- leaves the dots floating in a band with bare gradient either side of them.
+		im.ScaleType = Enum.ScaleType.Crop
+	end
 	im.ZIndex = obj.ZIndex
 	corner(im, cornerScale)
 	im.Parent = obj
@@ -441,6 +496,62 @@ local function outline(label, thickness)
 	return s
 end
 
+-- The Robux mark, drawn the one way the whole shop draws it: WHITE with a stamped
+-- ink contour, so it matches the price number beside it, which is always white with
+-- a heavy ink outline. Card prices and the feature banner used to draw a bare BLACK
+-- mark instead; on a gold or cyan card that put a dark glyph next to a light number
+-- and the two stopped reading as one price.
+--
+-- STAMPED, not stroked. A UIStroke on an ImageLabel outlines the LABEL'S RECTANGLE,
+-- not the glyph — it draws a box round the coin. Four ink copies offset one step on
+-- each axis, behind a white one, give a real contour, the same answer the pets reach
+-- for the same reason. They live in a holder so a list layout still sees one item.
+--
+-- Returns the holder. The caller owns Name, LayoutOrder, Size and Parent; the holder
+-- is kept square by its own constraint, which only ever SHRINKS, so give it a
+-- generous size on both axes or it renders nothing.
+local MARK_STAMP = 0.09     -- of the mark's own box, per axis
+local function robuxMark(z)
+	local holder = Instance.new("Frame")
+	holder.Name = "RobuxMark"
+	holder.BackgroundTransparency = 1
+	holder.ZIndex = z
+	local hr = Instance.new("UIAspectRatioConstraint")
+	hr.AspectRatio = 1
+	hr.Parent = holder
+
+	for _, dir in ipairs({ Vector2.new(1, 0), Vector2.new(-1, 0),
+	                       Vector2.new(0, 1), Vector2.new(0, -1) }) do
+		local e = Instance.new("ImageLabel")
+		e.Name = "Edge"
+		e.BackgroundTransparency = 1
+		e.AnchorPoint = Vector2.new(0.5, 0.5)
+		e.Position = UDim2.fromScale(0.5 + dir.X * MARK_STAMP, 0.5 + dir.Y * MARK_STAMP)
+		e.Size = UDim2.fromScale(1, 1)
+		e.Image = SHOP.PriceIcon
+		-- ImageColor3 MULTIPLIES, so a white source takes the ink cleanly and the
+		-- transparent square stays punched through it.
+		e.ImageColor3 = P.Ink
+		e.ScaleType = Enum.ScaleType.Fit
+		e.ZIndex = z
+		e.Parent = holder
+	end
+
+	local m = Instance.new("ImageLabel")
+	m.Name = "RobuxIcon"
+	m.BackgroundTransparency = 1
+	m.AnchorPoint = Vector2.new(0.5, 0.5)
+	m.Position = UDim2.fromScale(0.5, 0.5)
+	m.Size = UDim2.fromScale(1, 1)
+	m.Image = SHOP.PriceIcon
+	m.ImageColor3 = WHITE
+	m.ScaleType = Enum.ScaleType.Fit
+	m.ZIndex = z + 1
+	m.Parent = holder
+
+	return holder
+end
+
 -- Ribbons and the line under a price: TEXT, with nothing behind it. These were
 -- bordered plates, which put two more button-shaped things on a card that is itself
 -- a button — three things to press and only one of them live. Yellow with a heavy
@@ -493,9 +604,103 @@ local function castShadow(obj, drop, cornerScale, z, strength)
 	return s
 end
 
+-- A light rim INSIDE the ink border — the same two-line edge the panel itself
+-- carries, and the thing that makes a big plate read as moulded rather than as a
+-- flat rectangle with a line round it. An instance holds only ONE UIStroke, and
+-- the element's is already the ink border, so the highlight has to be its own
+-- inset frame. Topmost ZIndex on its host: a rim that anything can draw over is
+-- not a rim.
+local function rim(obj, cornerScale, z, inset)
+	local r = Instance.new("Frame")
+	r.Name = "Rim"
+	r.BackgroundTransparency = 1
+	r.AnchorPoint = Vector2.new(0.5, 0.5)
+	r.Position = UDim2.fromScale(0.5, 0.5)
+	r.Size = UDim2.new(1, -(inset or 7), 1, -(inset or 7))
+	r.ZIndex = z
+	corner(r, cornerScale)
+	stroke(r, WHITE, 2).Transparency = 0.6
+	r.Parent = obj
+	return r
+end
+
+-- castShadow parents the shadow INSIDE its element, which is right for a card —
+-- the shadow then inherits the hover pop and grows with it — and useless for the
+-- feature banner and the offer plate. Both of those ClipsDescendants, because their
+-- burst and halftone are square sheets that would otherwise show their corners
+-- outside the radius, so a child offset below the bottom edge is clipped away
+-- entirely. The answer is a transparent slot around the element, exactly its size,
+-- holding the shadow. The slot takes over the element's place in the list layout,
+-- so whatever sized the element now sizes the slot.
+local function shadowSlot(obj, drop, cornerScale, z, strength)
+	local slot = Instance.new("Frame")
+	slot.Name = obj.Name .. "Slot"
+	slot.BackgroundTransparency = 1
+	slot.Size = obj.Size
+	slot.LayoutOrder = obj.LayoutOrder
+	slot.ZIndex = obj.ZIndex
+	castShadow(slot, drop, cornerScale, z, strength)
+	obj.Size = UDim2.fromScale(1, 1)
+	obj.Position = UDim2.fromScale(0.5, 0.5)
+	obj.AnchorPoint = Vector2.new(0.5, 0.5)
+	obj.Parent = slot
+	return slot
+end
+
+-- Every green Robux pill in the shop — the feature banner's and the offer's three
+-- quantity tiers — gets this and nothing else does. They were bevelled plates with
+-- a border and no sheen, no ground and no response to being pointed at, which is
+-- the wrong way round for the one thing on a surface you are being asked to press.
+--
+-- Cards already pop on hover; these pop with them AND brighten, because a pill is
+-- small enough that a 5% scale on its own barely registers — the colour change is
+-- what actually reads at pill size. The press dips below rest rather than just
+-- returning to it, so a click lands even when the pointer never moves.
+--
+-- Returns a transparent CONTENT frame filling the pill, and the caller must put the
+-- mark and the number in THAT, not in the pill. Both pills arrange their contents
+-- with a UIListLayout, and a UIListLayout lays out every GuiObject child it has —
+-- so a gloss sheet and a cast shadow parented straight onto the pill become two
+-- more items in the row and shove the price off the end of it.
+local PILL_LIFT = 0.16    -- how far the hover colour travels toward white
+local function pillFeel(pill, base, cornerScale)
+	gloss(pill, 0.5, cornerScale, 0.6)
+	castShadow(pill, 0.07, cornerScale, pill.ZIndex - 1, 0.55)
+
+	local pop = Instance.new("UIScale")
+	pop.Parent = pill
+	local hot = base:Lerp(WHITE, PILL_LIFT)
+
+	audible(pill)
+	pill.MouseEnter:Connect(function()
+		TweenService:Create(pop, TweenInfo.new(0.12, Enum.EasingStyle.Back,
+			Enum.EasingDirection.Out), { Scale = 1.07 }):Play()
+		TweenService:Create(pill, TweenInfo.new(0.12), { BackgroundColor3 = hot }):Play()
+	end)
+	pill.MouseLeave:Connect(function()
+		TweenService:Create(pop, TweenInfo.new(0.12), { Scale = 1 }):Play()
+		TweenService:Create(pill, TweenInfo.new(0.16), { BackgroundColor3 = base }):Play()
+	end)
+	pill.MouseButton1Down:Connect(function()
+		TweenService:Create(pop, TweenInfo.new(0.06), { Scale = 0.94 }):Play()
+	end)
+	pill.MouseButton1Click:Connect(function()
+		TweenService:Create(pop, TweenInfo.new(0.16, Enum.EasingStyle.Back,
+			Enum.EasingDirection.Out), { Scale = 1.07 }):Play()
+	end)
+
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.BackgroundTransparency = 1
+	content.Size = UDim2.fromScale(1, 1)
+	content.ZIndex = pill.ZIndex + 1
+	content.Parent = pill
+	return content
+end
+
 ------------------------------------------------------------------------- panel
 panel.BackgroundColor3 = P.Panel
-panel.Size = UDim2.fromScale(0.72, 0.78)
+panel.Size = UDim2.fromScale(0.72, 0.65)
 panel.UIAspectRatioConstraint.AspectRatio = PANEL_ASPECT
 panel.UICorner.CornerRadius = UDim.new(PANEL_CORNER, 0)
 do
@@ -789,7 +994,6 @@ if feature then
 	-- arithmetic instead.
 	banner.ClipsDescendants = true
 	-- Centred on the contents strip, which is what this banner is selling.
-	-- Centred on the contents strip, which is what this banner is selling.
 	rays(banner, feature.Grad, 0.14, 0.5, 0.53)
 	-- Parented after the burst and before the gloss, so the dots sit on the rays and the
 	-- specular sheet sits on both. Lighter than the cards': the banner is already the
@@ -802,7 +1006,15 @@ if feature then
 		s.Color = P.Ink
 		strokes[s] = 3
 	end
-	banner.Parent = scroll
+	-- The same moulded edge the offer plate and the panel itself carry. The banner
+	-- was the only large plate in the shop drawn with a single flat ink line.
+	rim(banner, 0.14, 58)
+	-- Every card casts a shadow and the two biggest surfaces in the panel cast none,
+	-- so they sat flat on the white while the small things floated over it. Shallower
+	-- drop than a card's: these are full-width, and a card's 0.045 of a much shorter
+	-- box is a far smaller shadow in pixels than the same fraction of this one.
+	local bannerSlot = shadowSlot(banner, 0.028, 0.14, 52, 0.55)
+	bannerSlot.Parent = scroll
 
 	-- The mascot, overhanging the left end. It is what the reference leads with and
 	-- it is why the centre column starts at 0.2 rather than at the banner's edge.
@@ -890,8 +1102,14 @@ if feature then
 	-- it as a green plate for exactly that reason. Card prices are bare because a
 	-- whole card is already the button.
 	if feature.Price then
-		local pp = Instance.new("Frame")
+		-- A TextButton, not a Frame. It was the one thing on the banner you are being
+		-- asked to press and the only unpressable green plate in the panel — no hover,
+		-- no sound, no dip. NOT_WIRED like every other price here: there is no remote
+		-- and no product id, so the button is the feel and nothing else.
+		local pp = Instance.new("TextButton")
 		pp.Name = "FeaturePrice"
+		pp.Text = ""
+		pp.AutoButtonColor = false
 		pp.AnchorPoint = Vector2.new(1, 0.5)
 		pp.Position = UDim2.fromScale(0.975, 0.5)
 		pp.Size = UDim2.fromScale(0.16, 0.38)
@@ -901,6 +1119,7 @@ if feature then
 		corner(pp, 0.4)
 		stroke(pp, P.Ink, 2.4)
 		bevel(pp, P.Green)
+		local ppc = pillFeel(pp, P.Green[1], 0.4)
 
 		local lay = Instance.new("UIListLayout")
 		lay.FillDirection = Enum.FillDirection.Horizontal
@@ -908,24 +1127,15 @@ if feature then
 		lay.VerticalAlignment = Enum.VerticalAlignment.Center
 		lay.SortOrder = Enum.SortOrder.LayoutOrder
 		lay.Padding = UDim.new(0.04, 0)
-		lay.Parent = pp
+		lay.Parent = ppc
 
 		if SHOP.PriceIcon then
-			local m = Instance.new("ImageLabel")
-			m.Name = "RobuxIcon"
-			m.BackgroundTransparency = 1
+			local m = robuxMark(56)
 			m.LayoutOrder = 1
 			-- Generous width, squared off the pill's height by the constraint — which
 			-- only ever shrinks, so a zero width would render nothing at all.
 			m.Size = UDim2.fromScale(0.4, 0.74)
-			m.Image = SHOP.PriceIcon
-			m.ImageColor3 = BLACK
-			m.ScaleType = Enum.ScaleType.Fit
-			m.ZIndex = 56
-			local ar = Instance.new("UIAspectRatioConstraint")
-			ar.AspectRatio = 1
-			ar.Parent = m
-			m.Parent = pp
+			m.Parent = ppc
 		end
 
 		local pl = Instance.new("TextLabel")
@@ -939,7 +1149,7 @@ if feature then
 		pl.TextScaled = true
 		pl.ZIndex = 56
 		outline(pl, 2.2)
-		pl.Parent = pp
+		pl.Parent = ppc
 
 		pp.Parent = banner
 	end
@@ -956,7 +1166,9 @@ if feature then
 	end
 
 	table.insert(hooks, function()
-		banner.Size = UDim2.new(1, 0, 0, math.max(1, cellH * FEATURE_H))
+		-- The SLOT, not the banner: the banner now fills its slot at scale 1,1 so the
+		-- shadow outside the banner's own clip region tracks it.
+		bannerSlot.Size = UDim2.new(1, 0, 0, math.max(1, cellH * FEATURE_H))
 		if ftag then
 			ftag.Size = UDim2.new(1, 0, 0, math.max(1, cellH * 0.13))
 		end
@@ -1042,6 +1254,32 @@ local function makeCard(item, order)
 		icon.ScaleType = Enum.ScaleType.Fit
 		icon.ZIndex = 55
 		icon.Parent = card
+
+		-- The amount, ON the art. A coin pack's whole proposition is the number,
+		-- and until now it lived only in the blurb — a line of 12px body copy
+		-- beside the picture, which is the one place a player scanning a shelf
+		-- does not look. Yellow outlined text with nothing behind it, the same
+		-- treatment ribbons and tags get here and quantities get on the daily
+		-- cards: a bordered pill would put a second button-shaped thing on a card
+		-- that is already a button.
+		--
+		-- Low and slightly right of the icon's centre, so it overlaps the art's
+		-- lower edge rather than its middle, where it would cover the coin faces
+		-- that make the icon legible at all.
+		--
+		-- ON the icon, NOT under it. The card's body band is 0.28 .. 0.72 and the
+		-- price row starts at 0.70 on a card that carries a tag — so a quantity
+		-- hung below the art lands exactly on top of the price, which is what the
+		-- first pass did: "6,000" and the Robux figure printed through each other.
+		-- The art is a coin pile with room at its foot; the number goes there.
+		if item.Qty then
+			local qty = tag("Qty", item.Qty, 57)
+			qty.AnchorPoint = Vector2.new(0.5, 0.5)
+			qty.Position = UDim2.fromScale(ICON_X + 0.055, ICON_Y + 0.125)
+			qty.Size = UDim2.fromScale(0.36, 0.125)
+			capText(qty, 0.115)
+			qty.Parent = card
+		end
 	end
 
 	-- Description RIGHT at x 0.50 .. 0.95. White with an ink outline, matching the
@@ -1086,24 +1324,10 @@ local function makeCard(item, order)
 
 	local mark = nil
 	if SHOP.PriceIcon then
-		mark = Instance.new("ImageLabel")
-		mark.Name = "RobuxIcon"
-		mark.BackgroundTransparency = 1
-		mark.LayoutOrder = 1
 		-- Sized in the layout pass off the price's own TextSize rather than fitted to
-		-- the row's height, because the number is drawn with a heavy outline that the
-		-- mark does not have: matched to the bare glyph height it reads a size small
-		-- beside it. MARK_SCALE is that correction.
-		mark.Image = SHOP.PriceIcon
-		-- The artwork ships white; ImageColor3 multiplies, so black gives a solid black
-		-- glyph with the transparent square still punched through it.
-		mark.ImageColor3 = BLACK
-		mark.ScaleType = Enum.ScaleType.Fit
-		mark.ZIndex = 56
-		-- No UIStroke. Outlining the mark to match the number's weight rounded its
-		-- corners into a blob and read as a border drawn around it rather than as a
-		-- heavier glyph. The weight comes from the artwork instead — GameConfig's ROBUX
-		-- is the thicker-ringed variant — plus MARK_SCALE.
+		-- the row's height, so the mark tracks the number at every card size.
+		mark = robuxMark(56)
+		mark.LayoutOrder = 1
 		mark.Parent = row
 	end
 
@@ -1182,7 +1406,7 @@ local function makeCard(item, order)
 end
 
 ---------------------------------------------------------------------- sections
-local function makeHeader(section, order)
+local function makeHeader(section, order, gap)
 	local row = Instance.new("Frame")
 	row.Name = section.Name .. "Header"
 	row.BackgroundTransparency = 1
@@ -1193,7 +1417,10 @@ local function makeHeader(section, order)
 	local inner = Instance.new("UIListLayout")
 	inner.FillDirection = Enum.FillDirection.Horizontal
 	inner.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	inner.VerticalAlignment = Enum.VerticalAlignment.Center
+	-- Bottom, when there is a gap: the row is taller than the title band and the
+	-- extra height is meant to be empty space ABOVE the title, not around it.
+	inner.VerticalAlignment = gap and Enum.VerticalAlignment.Bottom
+	                              or Enum.VerticalAlignment.Center
 	inner.SortOrder = Enum.SortOrder.LayoutOrder
 	inner.Parent = row
 
@@ -1221,7 +1448,11 @@ local function makeHeader(section, order)
 	label.Name = "Label"
 	label.BackgroundTransparency = 1
 	label.AutomaticSize = Enum.AutomaticSize.X
-	label.Size = UDim2.new(0, 0, 1, 0)
+	-- Height resolved in the layout pass, not 1,0: on a gapped header the row is
+	-- taller than the title band and a full-height label would centre its text in
+	-- the whole thing, splitting the gap above and below instead of stacking it on
+	-- top.
+	label.Size = UDim2.new(0, 0, 0, 1)
 	label.LayoutOrder = 2
 	label.Text = section.Header or section.Name
 	-- White on a heavy ink outline, bigger than it was, matching every other heading
@@ -1237,7 +1468,8 @@ local function makeHeader(section, order)
 
 	table.insert(hooks, function()
 		local h = math.max(1, cellH * SECTION_H)
-		row.Size = UDim2.new(1, 0, 0, h)
+		row.Size = UDim2.new(1, 0, 0, h + (gap and math.floor(cellH * SECTION_GAP) or 0))
+		label.Size = UDim2.new(0, 0, 0, h)
 		label.TextSize = math.max(12, cellH * SECTION_TEXT)
 		inner.Padding = UDim.new(0, cellH * 0.04)
 		for _, im in ipairs(icons) do
@@ -1283,8 +1515,487 @@ local function makeGrid(section, order)
 	return block
 end
 
+------------------------------------------------------------------------ offer
+-- The egg offer: one wide plate carrying four things no card carries at once —
+-- a title, a rarity flag, a strip of hatch odds and a row of quantity tiers.
+-- Every position below is a fraction of the plate, so the relayout that resizes
+-- every other row resizes this one too and nothing has to be restated in pixels.
+local OFFER_H = 1.36        -- of card height. The feature banner is 0.62; this
+                            -- stacks odds OVER tiers, and at 0.95 the plate came
+                            -- out 3.6:1 and squashed each pet into a 37px sliver.
+
+-- ponytail: third copy of the pet-viewport builder — InventoryController and
+-- IndexController hold the other two. It belongs in UIKit; factor all three out
+-- when one of them next needs a real change, not today for five pets.
+local PET_MODELS = ReplicatedStorage:FindFirstChild(
+	require(ReplicatedStorage:WaitForChild("GameConfig")).Inventory.PetModelFolder)
+local PET_VIEW_DIR = Vector3.new(-0.30, 0.16, -1).Unit
+local PET_FOV, PET_PAD = 30, 1.12
+local PET_AMBIENT = Color3.fromRGB(235, 235, 235)
+-- STAMPED, not scaled. Scaling a dark copy up behind the pet offsets every edge
+-- radially from the image centre, so the contour is fat far from centre, absent
+-- near it, and shows the dark copy's own depth through the gaps. Four flat copies
+-- offset one stroke-width on each axis give an even contour that follows the
+-- silhouette. Four rather than eight: each one is a whole viewport.
+local PET_STROKE_OFFSETS = {
+	Vector2.new(1, 0), Vector2.new(-1, 0),
+	Vector2.new(0, 1), Vector2.new(0, -1),
+}
+local PET_STROKE = 0.05                              -- of the drop's own box
+local PET_STROKE_COLOUR = Color3.fromRGB(28, 28, 40)
+
+-- `flat` paints every part one colour and kills the directional light, which is
+-- what turns a pass into a silhouette.
+local function petViewport(drop, z, flat)
+	local source = PET_MODELS and PET_MODELS:FindFirstChild(drop.Model or "")
+	if not source then return nil end
+
+	local vp = Instance.new("ViewportFrame")
+	vp.BackgroundTransparency = 1
+	vp.Size = UDim2.fromScale(1, 1)
+	vp.ZIndex = z
+	-- A viewport ignores the place's Lighting and starts near black. The flat pass
+	-- wants NO directional light or the silhouette comes out shaded and stops
+	-- reading as one solid shape.
+	vp.Ambient = flat and Color3.new(1, 1, 1) or PET_AMBIENT
+	vp.LightColor = flat and Color3.new(0, 0, 0) or WHITE
+	vp.LightDirection = Vector3.new(-0.5, -1, -0.5)
+
+	local model = source:Clone()
+	if flat then
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				-- A UnionOperation IGNORES .Color unless UsePartColor is set: it
+				-- renders the colours of the parts it was built from. Every face on
+				-- these pets is a union, so without this the silhouettes stare back.
+				if d:IsA("UnionOperation") then d.UsePartColor = true end
+				d.Color = flat
+				d.Material = Enum.Material.SmoothPlastic
+				if d:IsA("MeshPart") then d.TextureID = "" end
+			elseif d:IsA("SpecialMesh") then
+				d.TextureId = ""
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				d:Destroy()
+			elseif d:IsA("SurfaceAppearance") then
+				-- Clearing TextureID is not enough on its own: a SurfaceAppearance
+				-- overrides it and keeps drawing the face on a flat silhouette.
+				d:Destroy()
+			end
+		end
+	end
+	model.Parent = vp
+
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = PET_FOV
+	-- Framed off the world-space bounding box. Do NOT PivotTo a staged model:
+	-- resetting the pivot tips upright rigs onto their backs.
+	local centre, size = model:GetBoundingBox()
+	-- Longest axis, not the diagonal: the diagonal frames a sphere the pet never
+	-- fills and renders it at a third of its cell.
+	local radius = math.max(size.X, size.Y, size.Z) / 2
+	local dist = (radius * PET_PAD) / math.tan(math.rad(PET_FOV / 2))
+	local dir = PET_VIEW_DIR
+	if drop.Yaw then dir = CFrame.Angles(0, math.rad(drop.Yaw), 0) * dir end
+	cam.CFrame = CFrame.lookAt(centre.Position + dir * dist, centre.Position)
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+	return vp
+end
+
+-- Glints: a handful of four-pointed stars that fade in somewhere inside the
+-- element, fade out, and move before they come back. A fixed few read as many
+-- because each one picks a new spot every cycle, which is far cheaper than a
+-- particle emitter and is the whole effect at this size.
+-- ponytail: one task per glint, looping for the life of the panel. Six of them is
+-- nothing; if glints ever go on every card, drive them all from one heartbeat.
+local GLINT = "\u{2726}"
+local function glitter(parent, count, z, tint)
+	for i = 1, count do
+		local g = Instance.new("TextLabel")
+		g.Name = "Glint" .. i
+		g.BackgroundTransparency = 1
+		g.AnchorPoint = Vector2.new(0.5, 0.5)
+		-- Square, via the constraint, because the parents are not: on the egg's tall
+		-- box a 0.1x0.26 glint came out 15x54 and TextScaled drew a 15px star in it.
+		-- The constraint only ever SHRINKS, so both scales have to be generous.
+		g.Size = UDim2.fromScale(0.3, 0.3)
+		local ar = Instance.new("UIAspectRatioConstraint")
+		ar.AspectRatio = 1
+		ar.Parent = g
+		g.Text = GLINT
+		g.TextColor3 = tint or WHITE
+		g.FontFace = FONT
+		g.TextScaled = true
+		g.TextTransparency = 1
+		g.ZIndex = z
+		g.Parent = parent
+
+		task.spawn(function()
+			-- Stagger the first appearance or all of them blink in unison.
+			task.wait(math.random(0, 220) / 100)
+			while g.Parent do
+				-- Nothing to draw while the shop is shut, and the tweens would run
+				-- all session for a panel nobody is looking at.
+				if panel.Visible then
+					g.Position = UDim2.fromScale(0.06 + math.random() * 0.88,
+					                             0.12 + math.random() * 0.76)
+					g.Rotation = math.random(-40, 40)
+					local up = TweenService:Create(g,
+						TweenInfo.new(0.38, Enum.EasingStyle.Quad), { TextTransparency = 0.1 })
+					local down = TweenService:Create(g,
+						TweenInfo.new(0.46, Enum.EasingStyle.Quad), { TextTransparency = 1 })
+					up:Play(); up.Completed:Wait()
+					down:Play(); down.Completed:Wait()
+				end
+				task.wait(math.random(70, 260) / 100)
+			end
+		end)
+	end
+end
+
+local offer = SHOP.Offer
+if offer then
+	local plate = Instance.new("Frame")
+	plate.Name = "Offer"
+	plate.BackgroundColor3 = offer.Grad[1]
+	plate.BorderSizePixel = 0
+	plate.Size = UDim2.new(1, 0, 0, 1)
+	plate.LayoutOrder = 3
+	plate.ZIndex = 53
+	-- Same reasoning as the feature banner: UICorner scale is of the SHORTER side,
+	-- and this plate is far wider than it is tall, so the card radius would round
+	-- the ends into a lozenge.
+	corner(plate, 0.12)
+	-- Clipped for the same reason the banner is: the burst and the halftone are
+	-- square sheets that would otherwise show their corners outside the radius.
+	-- The egg is the one thing meant to reach the edge, so it sits inside.
+	plate.ClipsDescendants = true
+	stroke(plate, P.Ink, 3)
+	bevel(plate, offer.Grad)
+	rim(plate, 0.12, 58)
+	-- Centred on the EGG, not on the odds strip: the egg is what the burst is
+	-- behind, and a burst whose centre sits off the object it lights reads as a
+	-- second light source. The egg's own centre is its right edge less half its
+	-- width, so these two numbers track the egg's placement below.
+	-- Zoomed past the shop-wide 1.8. At 1.8 the burst exactly reaches the plate's far
+	-- edge and no further, so its outer ring sits right on the border; a little more
+	-- puts the whole fade off-plate and reads as a bigger, softer glow behind the egg.
+	rays(plate, offer.Grad, 0.12, 0.875, 0.56, 2.15)
+	-- Tiled, unlike every other halftone in the shop. See halftone(): this plate is
+	-- the only element wide enough to magnify the 512px sheet. 0.69 of cellH lands
+	-- on a ~150px pitch at the size it ships at, which was picked on the real plate
+	-- rather than on a probe — at 100 the dots wash out into a flat haze.
+	halftone(plate, 0.12, 0.88, 0.69)
+	gloss(plate, 0.5, 0.22, 0.66)
+
+	-- The egg, big on the right end, and the only element allowed to crowd the
+	-- edge. Fit rather than Crop: the plate's box is nothing like square and Crop
+	-- would fill it with a stretched ellipse of an egg.
+	if offer.Egg then
+		local egg = Instance.new("ImageLabel")
+		egg.Name = "Egg"
+		egg.BackgroundTransparency = 1
+		egg.AnchorPoint = Vector2.new(1, 0.5)
+		egg.Position = UDim2.fromScale(0.980, 0.56)
+		-- Generous on both axes with a square constraint, which only ever SHRINKS:
+		-- the egg then gets the largest square the plate's height allows instead of
+		-- being boxed into the plate's own oblong aspect.
+		egg.Size = UDim2.fromScale(0.28, 0.93)
+		local ar = Instance.new("UIAspectRatioConstraint")
+		ar.AspectRatio = 1
+		ar.Parent = egg
+		egg.Image = offer.Egg
+		-- NO stamped contour, unlike the pets and the Robux mark. This artwork ships
+		-- its OWN heavy dark outline and its own highlights (that is the whole reason
+		-- to prefer it to the plain white egg that was here), so stamping four ink
+		-- copies behind it only thickens and softens an outline that is already
+		-- drawn. A UIStroke is wrong here for the usual reason — it outlines the
+		-- ImageLabel's rectangle, not the egg.
+		--
+		-- ImageColor3 MULTIPLIES. The source is a cream egg, and the tint is what
+		-- makes it the galaxy egg the offer is named after; the artwork's own black
+		-- outline is what keeps it separate from the violet plate, so the tint is
+		-- free to sit close to the plate's own hue.
+		if offer.EggTint then egg.ImageColor3 = offer.EggTint end
+		egg.ScaleType = Enum.ScaleType.Fit
+		egg.ZIndex = 55
+		egg.Parent = plate
+		-- On the egg rather than on the plate, so they follow it and stay off the
+		-- odds strip where they would read as another rarity pip. Yellow, not white:
+		-- white glints sit directly on the white burst behind the egg and vanish.
+		glitter(egg, 3, 57, P.Tag)
+	end
+
+	-- Title over the left three quarters, clear of the egg.
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.AnchorPoint = Vector2.new(0.5, 0)
+	title.Position = UDim2.fromScale(0.40, 0.03)
+	title.Size = UDim2.fromScale(0.60, 0.20)
+	title.Text = offer.Title or ""
+	-- White on ink, like every heading in the panel. Yellow is the flag's colour
+	-- and using it here would put two yellow call-outs on one plate.
+	title.TextColor3 = WHITE
+	title.FontFace = FONT
+	title.TextScaled = true
+	title.ZIndex = 56
+	outline(title, 3)
+	title.Parent = plate
+	glitter(title, 3, 57, P.Tag)
+
+	-- The flag, top-right, above the egg rather than beside it.
+	if offer.Flag then
+		local flag = tag("Flag", offer.Flag, 56)
+		flag.AnchorPoint = Vector2.new(1, 0)
+		flag.Position = UDim2.fromScale(0.975, 0.045)
+		flag.Size = UDim2.fromScale(0.26, 0.13)
+		flag.Parent = plate
+	end
+
+	-- The odds strip. Each drop is a column: pips, then the pet, then its chance.
+	if offer.Drops and #offer.Drops > 0 then
+		local strip = Instance.new("Frame")
+		strip.Name = "Drops"
+		strip.BackgroundTransparency = 1
+		strip.AnchorPoint = Vector2.new(0, 0.5)
+		strip.Position = UDim2.fromScale(0.035, 0.42)
+		strip.Size = UDim2.fromScale(0.70, 0.42)
+		strip.ZIndex = 55
+		local row = Instance.new("UIListLayout")
+		row.FillDirection = Enum.FillDirection.Horizontal
+		row.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		row.VerticalAlignment = Enum.VerticalAlignment.Center
+		row.SortOrder = Enum.SortOrder.LayoutOrder
+		row.Parent = strip
+
+		for i, drop in ipairs(offer.Drops) do
+			local col = Instance.new("Frame")
+			col.Name = "Drop" .. i
+			col.BackgroundTransparency = 1
+			col.LayoutOrder = i
+			col.Size = UDim2.fromScale(1 / #offer.Drops, 1)
+			col.ZIndex = 55
+
+			local pips = Instance.new("TextLabel")
+			pips.Name = "Pips"
+			pips.BackgroundTransparency = 1
+			pips.AnchorPoint = Vector2.new(0.5, 0)
+			pips.Position = UDim2.fromScale(0.5, 0)
+			pips.Size = UDim2.fromScale(0.92, 0.17)
+			pips.Text = string.rep("\u{2605}", drop.Stars or 1)
+			pips.TextColor3 = P.Tag
+			pips.FontFace = FONT
+			pips.TextScaled = true
+			pips.ZIndex = 56
+			outline(pips, 2)
+			pips.Parent = col
+
+			-- The pet itself: the real rig in a viewport, the same answer the
+			-- inventory and the index give. A drop with no model falls back to a
+			-- flat Icon, and one with neither simply shows its odds.
+			-- The pet and its contour. Four flat copies behind the real pass, the
+			-- same answer the inventory reached: a Highlight does not render inside
+			-- a ViewportFrame at all, and a UIStroke would outline the rectangle.
+			local art = nil
+			local source = PET_MODELS and PET_MODELS:FindFirstChild(drop.Model or "")
+			if source then
+				art = Instance.new("Frame")
+				art.BackgroundTransparency = 1
+				for k, dir in ipairs(PET_STROKE_OFFSETS) do
+					local edge = petViewport(drop, 55, PET_STROKE_COLOUR)
+					edge.Name = "Stroke" .. k
+					edge.AnchorPoint = Vector2.new(0.5, 0.5)
+					edge.Position = UDim2.fromScale(0.5 + dir.X * PET_STROKE,
+					                                0.5 + dir.Y * PET_STROKE)
+					edge.Parent = art
+				end
+				local body = petViewport(drop, 56)
+				body.Name = "Body"
+				body.AnchorPoint = Vector2.new(0.5, 0.5)
+				body.Position = UDim2.fromScale(0.5, 0.5)
+				body.Parent = art
+			end
+			if not art and drop.Icon then
+				art = Instance.new("ImageLabel")
+				art.BackgroundTransparency = 1
+				art.Image = drop.Icon
+				art.ScaleType = Enum.ScaleType.Fit
+				art.ZIndex = 56
+			end
+			if art then
+				art.Name = "Art"
+				art.AnchorPoint = Vector2.new(0.5, 0.5)
+				art.Position = UDim2.fromScale(0.5, 0.51)
+				art.Size = UDim2.fromScale(0.94, 0.62)
+				art.Parent = col
+			end
+
+			local pct = Instance.new("TextLabel")
+			pct.Name = "Pct"
+			pct.BackgroundTransparency = 1
+			pct.AnchorPoint = Vector2.new(0.5, 1)
+			-- Right of centre, as the reference has it: the number sits under the
+			-- pet's body rather than under the whole cell, and the cell is wider
+			-- than the pet.
+			pct.Position = UDim2.fromScale(0.58, 1)
+			pct.Size = UDim2.fromScale(0.92, 0.20)
+			pct.Text = drop.Pct or ""
+			pct.TextColor3 = WHITE
+			pct.FontFace = FONT
+			pct.TextScaled = true
+			pct.ZIndex = 56
+			outline(pct, 2.2)
+			pct.Parent = col
+
+			col.Parent = strip
+		end
+		strip.Parent = plate
+	end
+
+	-- The quantity ladder along the bottom. Each tier is its own column: the count
+	-- above, a green pill under it, and the saving under that on the tier that has
+	-- one. Green because the feature banner already establishes green as the thing
+	-- you press.
+	if offer.Tiers and #offer.Tiers > 0 then
+		local tiers = Instance.new("Frame")
+		tiers.Name = "Tiers"
+		tiers.BackgroundTransparency = 1
+		tiers.AnchorPoint = Vector2.new(0, 1)
+		-- 0.93, not 0.955. The bulk tier's saving hangs BELOW its pill, and at 0.955
+		-- that line sat on the plate's rim with its descenders touching it.
+		tiers.Position = UDim2.fromScale(0.035, 0.93)
+		tiers.Size = UDim2.fromScale(0.66, 0.28)
+		tiers.ZIndex = 55
+		local row = Instance.new("UIListLayout")
+		row.FillDirection = Enum.FillDirection.Horizontal
+		row.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		row.VerticalAlignment = Enum.VerticalAlignment.Center
+		row.SortOrder = Enum.SortOrder.LayoutOrder
+		row.Padding = UDim.new(0.03, 0)
+		row.Parent = tiers
+
+		for i, tier in ipairs(offer.Tiers) do
+			local col = Instance.new("Frame")
+			col.Name = "Tier" .. i
+			col.BackgroundTransparency = 1
+			col.LayoutOrder = i
+			col.Size = UDim2.fromScale(0.31, 1)
+			col.ZIndex = 55
+
+			local count = Instance.new("TextLabel")
+			count.Name = "Count"
+			count.BackgroundTransparency = 1
+			count.AnchorPoint = Vector2.new(0.5, 0)
+			count.Position = UDim2.fromScale(0.5, 0)
+			count.Size = UDim2.fromScale(1, 0.30)
+			count.Text = tier.Label or ""
+			count.TextColor3 = WHITE
+			count.FontFace = FONT
+			count.TextScaled = true
+			count.ZIndex = 56
+			outline(count, 2)
+			count.Parent = col
+
+			-- NOT_WIRED, same as every card: no remote, no product id, so the pill
+			-- is a TextButton for the hover and the click sound and nothing else.
+			local pill = Instance.new("TextButton")
+			pill.Name = "Buy"
+			pill.Text = ""
+			pill.AutoButtonColor = false
+			pill.AnchorPoint = Vector2.new(0.5, 0.5)
+			-- 0.55, not 0.50. The pill and the caption share ZIndex 56 and the pill
+			-- is built second, so wherever they overlap the pill wins — at 0.50 its
+			-- top edge cut the descenders off the caption and "x1 Egg" rendered as
+			-- "x1 Eaa". The caption ends at 0.30; this starts at 0.34.
+			pill.Position = UDim2.fromScale(0.5, 0.55)
+			pill.Size = UDim2.fromScale(1, 0.42)
+			pill.BackgroundColor3 = P.Green[1]
+			pill.BorderSizePixel = 0
+			pill.ZIndex = 56
+			-- 0.22, not the 0.4 the feature banner's pill uses: the reference's
+			-- quantity buttons are rounded rectangles, not lozenges, and three of
+			-- them in a row at 0.4 read as a row of capsules.
+			corner(pill, 0.22)
+			stroke(pill, P.Ink, 2.4)
+			bevel(pill, P.Green)
+			-- Sheen, ground and hover, the same as the banner's pill. audible() comes
+			-- with it; it used to be the ONLY thing these three had.
+			local pc = pillFeel(pill, P.Green[1], 0.22)
+
+			local lay = Instance.new("UIListLayout")
+			lay.FillDirection = Enum.FillDirection.Horizontal
+			lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+			lay.VerticalAlignment = Enum.VerticalAlignment.Center
+			lay.SortOrder = Enum.SortOrder.LayoutOrder
+			lay.Padding = UDim.new(0.04, 0)
+			lay.Parent = pc
+
+			local plabel = Instance.new("TextLabel")
+			plabel.Name = "Label"
+			plabel.BackgroundTransparency = 1
+			-- Mark first, then the number — the order the cards and the feature
+			-- banner use. These three were the only prices in the shop reading the
+			-- other way round, and with the marks now identical everywhere the
+			-- mirrored order was the only thing left making them look different.
+			plabel.LayoutOrder = 2
+			plabel.Size = UDim2.fromScale(0.52, 0.62)
+			plabel.Text = tier.Price or ""
+			plabel.TextColor3 = WHITE
+			plabel.FontFace = FONT
+			plabel.TextScaled = true
+			plabel.ZIndex = 57
+			outline(plabel, 2.2)
+			plabel.Parent = pc
+
+			if SHOP.PriceIcon then
+				local m = robuxMark(57)
+				m.LayoutOrder = 1
+				-- Generous width, squared off the pill's height by the constraint,
+				-- which only ever SHRINKS — a zero width renders nothing at all.
+				m.Size = UDim2.fromScale(0.4, 0.66)
+				m.Parent = pc
+			end
+
+			pill.Parent = col
+
+			if tier.Off then
+				local off = Instance.new("TextLabel")
+				off.Name = "Off"
+				off.BackgroundTransparency = 1
+				off.AnchorPoint = Vector2.new(0.5, 1)
+				off.Position = UDim2.fromScale(0.5, 1)
+				off.Size = UDim2.fromScale(1, 0.22)
+				off.Text = tier.Off
+				off.TextColor3 = P.Close
+				off.FontFace = FONT
+				off.TextScaled = true
+				off.ZIndex = 57
+				outline(off, 1.8)
+				off.Parent = col
+			end
+
+			col.Parent = tiers
+		end
+		tiers.Parent = plate
+	end
+
+	if offer.Header then
+		makeHeader({ Name = "Offer", Header = offer.Header }, 2).Parent = scroll
+	end
+	-- As the banner: the plate clips, so its shadow has to live in a slot around it.
+	local plateSlot = shadowSlot(plate, 0.028, 0.12, 52, 0.55)
+	plateSlot.Parent = scroll
+
+	table.insert(hooks, function()
+		plateSlot.Size = UDim2.new(1, 0, 0, math.max(1, cellH * OFFER_H))
+	end)
+end
+
 for i, section in ipairs(SHOP.Sections) do
-	makeHeader(section, i * 10).Parent = scroll
+	-- Gap above every shelf title. Not the first: it already follows the offer
+	-- header, which is the top of the scroll.
+	makeHeader(section, i * 10, i > 1).Parent = scroll
 	makeGrid(section, i * 10 + 1).Parent = scroll
 end
 
@@ -1331,3 +2042,4 @@ panel:GetPropertyChangedSignal("AbsoluteSize"):Connect(rescaleStrokes)
 hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(rescaleStrokes)
 relayout()
 rescaleStrokes()
+

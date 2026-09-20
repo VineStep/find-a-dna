@@ -578,6 +578,16 @@ local SCRIBBLE_ANGLE = -32
 -- plus the 0.7 that suited the dark one composites to within a few percent of the
 -- white panel, and the scribble disappears completely. Light colour, less fade.
 local SCRIBBLE_FADE = 0.42
+-- WHICH DOES NOTHING, and is left here only because it is what the bars' colour
+-- was chosen against. GroupTransparency is INERT on these groups: verified by
+-- setting it to 1 on all eighteen scribbles at once and capturing the screen —
+-- every one still drew, unchanged. Same cause as the ZIndex note in makeScribble:
+-- under ZIndexBehavior.Global the bars are sorted against the whole ScreenGui
+-- rather than composited inside the group, so the group never gets a buffer to
+-- fade. What is on screen is the bars' own opaque colour, which is why the light
+-- end of the pair is the right one and why it looks correct anyway.
+-- The real lever, if a fade is ever wanted, is the BAR colour — lerp it toward
+-- the panel. Do not reach for GroupTransparency; it is not connected to anything.
 -- Bars must stay inside the box: a CanvasGroup CLIPS its descendants to its own
 -- bounds, and a scribble clipped flat on one side stops being a scribble.
 local SCRIBBLE_MAX_W = 0.84
@@ -743,7 +753,9 @@ local function makeTile(pet, order)
 		):Play()
 	end)
 
-	UIKit.audible(tile)
+	-- The pet grid's own hover sample, not the UI tick every button uses. Click
+	-- stays shared: a press is a press.
+	UIKit.audible(tile, INV.PetHoverSound)
 	tile.MouseEnter:Connect(function()
 		TweenService:Create(pop, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.08 }):Play()
 	end)
@@ -1025,6 +1037,57 @@ noMatch.Visible = false
 kit:capText(noMatch, 0.24)
 noMatch.Parent = scroll
 
+-- THE SCRIBBLE CULL.
+--
+-- A CanvasGroup is NOT clipped by an ancestor's ClipsDescendants. The scroll sets
+-- it and it holds for everything else — pets, power numbers, badges all cut off
+-- cleanly at the window edge — but every scribble in a row above or below the
+-- window keeps drawing, outside the panel, over the 3D world. Verified by forcing
+-- the overflow: coloured blobs floating in the sky above the panel and on the
+-- grass below it, with no pet attached to any of them. It shows up on PHONES
+-- first and worst, because a narrow viewport drops the grid to three or four
+-- columns and there are then always rows off both edges; at desktop width the
+-- roster barely overflows at all, which is why it was not seen here.
+--
+-- So the clip cannot be fixed and the scribble has to cull itself.
+--
+-- VISIBLE, not GroupTransparency. Fading it out by coverage as a row crosses the
+-- edge was the first version of this and it did nothing at all — see
+-- SCRIBBLE_FADE above: GroupTransparency is inert on these groups. Visible IS
+-- respected, in and out of the clip (verified the same way, by capture), so the
+-- cull is binary and a row loses its backing the instant it crosses. That is
+-- invisible in practice, because the row is being clipped away in the same
+-- movement.
+local function cullScribbles()
+	local top = scroll.AbsolutePosition.Y
+	local bottom = top + scroll.AbsoluteWindowSize.Y
+	if bottom <= top then return end
+	-- shelf and grid, the two CONTAINER frames — not shelfGrid, which is the
+	-- UIGridLayout inside the shelf and has no children of its own. Passing the
+	-- layout culled the main grid correctly and left all nine equipped pets on the
+	-- shelf bleeding, which is the half-fixed state this comment exists to prevent.
+	for _, holder in ipairs({ shelf, grid }) do
+		for _, slot in ipairs(holder:GetChildren()) do
+			-- The layout instances are children too, and the shelf's + key is a slot
+			-- with no scribble in it.
+			local tile = slot:IsA("GuiObject") and slot:FindFirstChild("Tile") or nil
+			local blob = tile and tile:FindFirstChild("Scribble") or nil
+			if blob then
+				-- Measured on the SLOT, not the tile: the tile carries the hover pop
+				-- and its UIScale would make a hovered row read as more covered than
+				-- its neighbours.
+				local y0 = slot.AbsolutePosition.Y
+				local y1 = y0 + slot.AbsoluteSize.Y
+				blob.Visible = y0 >= top and y1 <= bottom
+			end
+		end
+	end
+end
+
+-- Every frame of a drag or a wheel notch moves this, so it is the signal that
+-- matters; relayout covers resize, rebuild and the first pass.
+scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(cullScribbles)
+
 local relayout -- forward declaration; rebuildGrid runs a layout pass after it
 
 local function sortedPets()
@@ -1189,6 +1252,9 @@ function relayout()
 		cols -= 1
 	end
 	kit:relayout(cellW)
+	-- After the layout, not before: the slots have only just been given their
+	-- size, and coverage measured against the old one is a frame stale.
+	task.defer(cullScribbles)
 end
 
 -- Both signals: the scroll's own is the direct one, and the HUD's is the one that

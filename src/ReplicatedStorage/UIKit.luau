@@ -29,6 +29,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 
 -- Rays and Halftone are HOUSE textures that every panel wants, but they live
 -- under GameConfig.Shop for historical reasons — the shop is where they were
@@ -72,22 +73,148 @@ local SFX_CLICK = UIKit.sound(10128760939, 0.45) -- "Select 01"
 local HOVER_COOLDOWN = 0.12
 local lastHover = 0
 
+-- Sounds are created once per id and shared by every caller that asks for it: a
+-- Sound per tile is eighteen instances playing one sample.
+local hoverSounds = {}
+
 -- Every interactive thing gets the same pair, so it is one call rather than two
 -- Connects copied everywhere.
-function UIKit.audible(button)
+--
+-- hoverId overrides the hover sample only. The inventory's pet tiles use it: a
+-- pet is not a button and the UI tick makes picking up a creature sound like
+-- pressing a menu key. The click stays shared — a press is a press.
+--
+-- The COOLDOWN stays global even with an override, which is the whole reason it
+-- is not per-button: dragging across a grid of eighteen pets enters eighteen
+-- tiles in a couple of hundred milliseconds, and a per-button floor never fires
+-- because each is entered exactly once on the way past.
+function UIKit.audible(button, hoverId)
+	local hover = SFX_HOVER
+	if hoverId then
+		hover = hoverSounds[hoverId] or UIKit.sound(hoverId, 0.3)
+		hoverSounds[hoverId] = hover
+	end
 	button.MouseEnter:Connect(function()
 		local now = os.clock()
 		if now - lastHover < HOVER_COOLDOWN then return end
 		lastHover = now
 		-- TimePosition reset first, or a rapid second trigger is swallowed by the
 		-- sample already playing instead of restarting it.
-		SFX_HOVER.TimePosition = 0
-		SFX_HOVER:Play()
+		hover.TimePosition = 0
+		hover:Play()
 	end)
 	button.MouseButton1Click:Connect(function()
 		SFX_CLICK.TimePosition = 0
 		SFX_CLICK:Play()
 	end)
+end
+
+--------------------------------------------------------------------- rainbow
+-- A UIGradient on a TextLabel tints the GLYPHS and leaves the UIStroke alone, so
+-- the ink contour survives it and the text stays legible over a pale panel —
+-- which is the whole reason a rainbow works on type here at all. Horizontal, so
+-- the ramp spans the line rather than banding each letter top to bottom.
+--
+-- THE LABEL MUST BE WHITE UNDERNEATH. A gradient MULTIPLIES what is under it, so
+-- on a coloured label every stop in the ramp comes out a shade of that colour.
+--
+-- It travels: a static ramp across one short line reads as a gradient, not as a
+-- rainbow. Offset wraps at 1, so it steps back to -1 and runs again rather than
+-- snapping.
+--
+-- ponytail: DailyController carries its own verbatim copy of this and is NOT
+-- migrated, the same call the header makes about ShopController — it works, and
+-- the diff is risk for no visible gain. Upgrade path: delete its RAINBOW,
+-- statusRamp and the task.spawn under them and call this instead.
+local RAINBOW = ColorSequence.new({
+	ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255,  92, 112)),
+	ColorSequenceKeypoint.new(0.18, Color3.fromRGB(255, 176,  64)),
+	ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 232,  74)),
+	ColorSequenceKeypoint.new(0.52, Color3.fromRGB( 96, 222, 106)),
+	ColorSequenceKeypoint.new(0.68, Color3.fromRGB( 74, 196, 255)),
+	ColorSequenceKeypoint.new(0.84, Color3.fromRGB(150, 130, 255)),
+	ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 122, 216)),
+})
+
+-- gate: optional GuiObject whose Visible gates the animation, so a rainbow on a
+-- closed panel is not driving a 30Hz loop for a screen nobody is looking at.
+function UIKit.rainbow(label, gate, speed)
+	label.TextColor3 = WHITE
+	local ramp = label:FindFirstChildOfClass("UIGradient") or Instance.new("UIGradient")
+	ramp.Color = RAINBOW
+	ramp.Parent = label
+
+	local hud = label:FindFirstAncestorWhichIsA("ScreenGui")
+	task.spawn(function()
+		while ramp.Parent do
+			-- ReduceMotion is the settings toggle every animation here honours.
+			if ramp.Enabled
+				and (not gate or gate.Visible)
+				and not (hud and hud:GetAttribute("ReduceMotion")) then
+				ramp.Offset = Vector2.new((tick() * (speed or 0.35)) % 2 - 1, 0)
+			end
+			task.wait(1 / 30)
+		end
+	end)
+	return ramp
+end
+
+----------------------------------------------------------------------- feel
+-- Hover pop, press squash, release pop. The shop's cards and the inventory's pet
+-- tiles both grew their own copy of this; anything built after them gets it from
+-- here instead.
+--
+-- One UIScale, REUSED if the element already has one, because an element takes
+-- only the first and a second is silently ignored — which looks exactly like a
+-- button that does not respond.
+--
+-- SCALE ONLY, no rotation by default. The HUD tiles tilt -4 degrees on hover and
+-- that reads well on a square piece of artwork; on a wide pill it looks like the
+-- row came unglued. Pass Tilt to opt in.
+local FEEL_POP = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local FEEL_SQUASH = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FEEL_BACK = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+function UIKit.feel(button, opts)
+	opts = opts or {}
+	local grow = opts.Grow or 1.08
+	local press = opts.Press or 0.94
+	local tilt = opts.Tilt or 0
+	local rest = button.Rotation
+
+	local scale = button:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	scale.Parent = button
+
+	-- Tracked, because releasing the mouse INSIDE the button has to return to the
+	-- hover size and releasing it after leaving has to return to 1 — without this
+	-- a press-and-drag-off leaves the element stuck at 0.94.
+	local hovered = false
+
+	local function go(target, info)
+		TweenService:Create(scale, info, { Scale = target }):Play()
+	end
+
+	button.MouseEnter:Connect(function()
+		hovered = true
+		go(grow, FEEL_POP)
+		if tilt ~= 0 then
+			TweenService:Create(button, FEEL_POP, { Rotation = rest + tilt }):Play()
+		end
+	end)
+	button.MouseLeave:Connect(function()
+		hovered = false
+		go(1, FEEL_POP)
+		if tilt ~= 0 then
+			TweenService:Create(button, FEEL_POP, { Rotation = rest }):Play()
+		end
+	end)
+	button.MouseButton1Down:Connect(function()
+		go(press, FEEL_SQUASH)
+	end)
+	button.MouseButton1Up:Connect(function()
+		go(hovered and grow or 1, FEEL_BACK)
+	end)
+	return scale
 end
 
 --------------------------------------------------------------------- surfaces
@@ -204,9 +331,9 @@ end
 --   light, so there is nothing for the gap to fail to darken. Put an opaque burst
 --   back in GameConfig and the discoloured corners come back with it.
 local RAYS_INSET = 0.34 -- of the corner radius; 0.293 is the exact minimum
-local RAYS_ZOOM = 1.8
 -- How much LIGHTER the rays make the surface, not how strong an image reads: the
 -- source is white and the element underneath supplies the hue.
+local RAYS_ZOOM = 1.8
 local RAYS_FADE = 0.25
 
 function UIKit.rays(obj, cornerScale, cx, cy)
@@ -219,10 +346,22 @@ function UIKit.rays(obj, cornerScale, cx, cy)
 	clip.ClipsDescendants = true
 	clip.ZIndex = obj.ZIndex
 
-	-- No UICorner here: it would not clip anything (see above). The inset IS the
-	-- mechanism, and it is recomputed whenever the element resizes, because the
-	-- radius it comes from is a fraction of the element's own shorter side — which
-	-- changes on every relayout and on every hover pop.
+	local im = Instance.new("ImageLabel")
+	im.Name = "Burst"
+	im.BackgroundTransparency = 1
+	im.AnchorPoint = Vector2.new(0.5, 0.5)
+	im.Position = UDim2.fromScale(cx or 0.5, cy or 0.5)
+	im.Image = SHOP.Rays
+	im.ImageTransparency = RAYS_FADE
+	im.ScaleType = Enum.ScaleType.Fit
+	im.ZIndex = obj.ZIndex
+	im.Size = UDim2.fromScale(RAYS_ZOOM, RAYS_ZOOM)
+	im.Parent = clip
+
+	-- Oversized and CROPPED by the wrapper, which is what lets it be aimed off
+	-- centre. It does not spin: a rotated GuiObject is not clipped, so a turning
+	-- burst escapes its element. Only the shop TILE's burst turns, in
+	-- HUDController, where it sits alone in its own group.
 	local function fit()
 		local sz = obj.AbsoluteSize
 		local d = RAYS_INSET * (cornerScale or 0.18) * math.min(sz.X, sz.Y)
@@ -230,24 +369,6 @@ function UIKit.rays(obj, cornerScale, cx, cy)
 	end
 	obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 	fit()
-
-	local im = Instance.new("ImageLabel")
-	im.Name = "Burst"
-	im.BackgroundTransparency = 1
-	im.AnchorPoint = Vector2.new(0.5, 0.5)
-	im.Position = UDim2.fromScale(cx or 0.5, cy or 0.5)
-	im.Size = UDim2.fromScale(RAYS_ZOOM, RAYS_ZOOM)
-	im.Image = SHOP.Rays
-	im.ImageTransparency = RAYS_FADE
-	-- Fit, not Crop. The burst is radial and the box it is given has the element's
-	-- aspect rather than a square one; Crop would fill that box and draw an
-	-- ELLIPTICAL burst with the rays stretched along the wider axis.
-	im.ScaleType = Enum.ScaleType.Fit
-	im.ZIndex = obj.ZIndex
-	-- Deliberately NO bevel() here. The source is white, and white multiplied by
-	-- the element's own ramp is exactly the element's own colour — the rays would
-	-- vanish into it. The element underneath carries the hue; this only lightens.
-	im.Parent = clip
 
 	-- Parented FIRST, before the halftone, the gloss and every label, because ties
 	-- on ZIndex are broken by child order and this has to sit under all of them.
