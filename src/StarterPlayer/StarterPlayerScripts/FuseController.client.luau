@@ -986,12 +986,20 @@ local function runCutscene(a, b)
 	-- `busy`, so the first tick after the cutscene ends puts them back.
 	prompt:suppress()
 
-	-- 2. THE CAMERA takes over and glides in.
-	local look = boxCentre + Vector3.new(0, CUT.CameraLookLift or 1.5, 0)
-	local offset = CUT.CameraOffset or Vector3.new(0, 5.5, 26)
+	-- 2. THE CAMERA takes over and glides in, LEVEL WITH THE HELIX.
+	--
+	-- The reference is the helix, not the machine's bounding box: the box centre
+	-- sits about two and a half studs to one side of the strands because the
+	-- monitor drags it sideways, and the box's own height is not the strands'
+	-- height either. Aiming at the helix with a zero Y offset puts the camera
+	-- square on and dead level, which is what the shot is of.
+	local aim = (CUT.CameraAimHelix ~= false and helixSource)
+		and helixSource.Position or boxCentre
+	local look = aim + Vector3.new(0, CUT.CameraLookLift or 0, 0)
+	local offset = CUT.CameraOffset or Vector3.new(0, 0, 26)
 	local fovWas = cam.FieldOfView
 	cam.CameraType = Enum.CameraType.Scriptable
-	local target = CFrame.lookAt(boxCentre + offset, look)
+	local target = CFrame.lookAt(aim + offset, look)
 	-- The GLIDE is a tween; the SHAKE is added on top of wherever the tween has
 	-- got to, by the animation loop below. Tweening CFrame and also writing CFrame
 	-- every frame would be two things fighting for the same property, so the loop

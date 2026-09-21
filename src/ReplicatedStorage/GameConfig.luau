@@ -684,7 +684,9 @@ return {
 		-- restarting the server.
 		Times = {
 			{ Label = "Live", Live = true },
-			{ Label = "Dawn", Clock = 6.5 },
+			-- 7.1, matching Lighting.ClockTime, so pressing Dawn puts the sky back
+			-- to exactly what the game ships at rather than to a near-miss.
+			{ Label = "Dawn", Clock = 7.1 },
 			{ Label = "Noon", Clock = 13 },
 			{ Label = "Night", Clock = 0 },
 		},
@@ -1022,12 +1024,21 @@ return {
 			FlashHold = 0.16,
 			FlashOut = 0.65,
 
-			-- Where the camera stands, in studs relative to the machine's own
-			-- bounding box centre. Chosen off the place rather than picked: far
-			-- enough out that the whole tank and the monitor are both in frame, and
-			-- above centre so the floor ring of the gravity rig shows.
-			CameraOffset = Vector3.new(0, 5.5, 26),
-			CameraLookLift = 1.5,    -- studs above centre the camera aims
+			-- Where the camera stands, in studs relative to THE HELIX — not to the
+			-- machine's bounding box, and not lifted.
+			--
+			-- It was (0, 5.5, 26) off the box centre, aimed 1.5 studs above it,
+			-- which put the camera above the strands and looking down at them. The
+			-- shot is of two helices meeting, so the camera belongs LEVEL with them
+			-- on both axes: no Y offset, no aim lift, and the helix's own position
+			-- as the target rather than the box centre, which sits two and a half
+			-- studs to one side of it because the monitor drags the box sideways.
+			--
+			-- CameraAimHelix is what switches the reference; false falls back to the
+			-- box centre for a machine with no helix in it.
+			CameraAimHelix = true,
+			CameraOffset = Vector3.new(0, 0, 26),
+			CameraLookLift = 0,
 			CameraEase = 0.8,        -- seconds to glide in, and again to hand back
 
 			-- The two helices fly in from this far either side of the tank, on the
@@ -1072,6 +1083,86 @@ return {
 			-- already aimed and already switched on for the cutscene.
 			LightPeak = 6,
 		},
+	},
+
+	-- THE PLACE'S OWN LIGHTING, and the one number that matters most: the sky is
+	-- PINNED AT DAWN and does not move.
+	--
+	-- It used to follow real-world UTC, which is a nice idea and was the wrong
+	-- one: it meant the live game looked however the clock in Greenwich happened
+	-- to look, so half the day players arrived to a flat grey afternoon or a night
+	-- they could not see the plots in. A cartoon game wants ONE good hour, chosen
+	-- and kept. Dawn is that hour — long warm shadows, a coloured sky, and enough
+	-- light to read the world by.
+	--
+	-- AN ADMIN CAN STILL OVERRIDE IT. The Time row's Dawn/Noon/Night still pin
+	-- whatever they say, and Live still hands the sky back to real UTC for anyone
+	-- who wants to watch it move; this is the DEFAULT, not a lock.
+	--
+	-- AdminService applies this at startup, so the published game and Studio agree
+	-- and nothing depends on the place file being saved with the right values.
+	Lighting = {
+		-- 7.1, TUNED AGAINST THE PLACE, not picked off the clock. 6.2 with a high
+		-- latitude was tried first on the theory that earlier is more dawn-like,
+		-- and it is the wrong theory: at that hour the sun is barely over the
+		-- horizon, so nothing gets DIRECT light, the whole scene is lit by Ambient
+		-- alone, and it comes out flat and dim — worse than the afternoon it
+		-- replaced. 7.1 has the sun properly up but still low, which is what
+		-- actually gives long warm shadows and a coloured sky.
+		ClockTime = 7.1,
+		-- Roblox drives the sun's arc off latitude. 41 tilts it so far that the sun
+		-- never climbs; 8 keeps the arc near-vertical so a low hour is low because
+		-- of the hour rather than because the sun cannot get up at all.
+		GeographicLatitude = 8,
+
+		-- CARTOONY MEANS: bright, saturated, and no black. The old values were a
+		-- neutral grey Ambient at 0.27 with saturation flat at 0 — a technically
+		-- correct, slightly miserable afternoon.
+		--
+		-- Ambient is what fills shadow, so a warm, fairly high one is what stops
+		-- the shaded side of everything going muddy. The two ColorShifts tint the
+		-- sun and the sky separately: warm sun, cool sky, which is the whole
+		-- cartoon-lighting trick in two properties.
+		Ambient = Color3.fromRGB(118, 108, 126),
+		OutdoorAmbient = Color3.fromRGB(142, 132, 152),
+		ColorShiftTop = Color3.fromRGB(255, 222, 176),
+		ColorShiftBottom = Color3.fromRGB(120, 150, 196),
+		Brightness = 3.1,
+		ExposureCompensation = 0.1,
+		-- Softer than the 0.2 it shipped with: hard-edged shadows are the most
+		-- realistic thing in the frame and the first thing to go.
+		ShadowSoftness = 0.55,
+		EnvironmentDiffuseScale = 0.75,
+		EnvironmentSpecularScale = 0.2,
+		-- Fog stays effectively off. A cartoon world wants to be legible to the
+		-- horizon; the blood moon is the one thing that closes it in.
+		FogEnd = 100000,
+
+		-- SATURATION is the single biggest lever on "cartoony" and it was sitting
+		-- at zero. Pushed well up, with contrast only slightly up — crushing
+		-- contrast is what makes a bright scene look like a photo filter.
+		ColorCorrection = {
+			Brightness = 0.03,
+			Contrast = 0.14,
+			Saturation = 0.34,
+			TintColor = Color3.fromRGB(255, 252, 245),
+		},
+		-- Bloom that shows. At threshold 2 almost nothing in the place was bright
+		-- enough to bloom at all; at 1.1 the sky, the neon and the coin art all
+		-- glow a little, which is most of what makes these games look sunny.
+		Bloom = { Intensity = 1.15, Size = 30, Threshold = 1.1 },
+		-- LOW density and low haze. The first pass ran 0.28 / 1.1 and put a white
+		-- wall across the horizon — a cartoon world wants to be legible all the
+		-- way out, and haze is the fastest way to make a bright scene look washed.
+		-- This is just enough to put air between the near ground and the skyline.
+		Atmosphere = {
+			Density = 0.11,
+			Color = Color3.fromRGB(232, 226, 255),
+			Decay = Color3.fromRGB(140, 156, 200),
+			Haze = 0.35,
+			Glare = 0.12,
+		},
+		SunRays = { Intensity = 0.2, Spread = 0.6 },
 	},
 
 	-- WALK-UP TRANSITS. A plate on a piece of the world that moves you somewhere

@@ -515,6 +515,18 @@ list.Size = UDim2.fromScale(0.9, 0.77)
 list.ZIndex = Z_ROW - 1
 list.Parent = panel
 
+-- ROOM FOR THE STROKES, and this is the "edge problem" the rows kept having.
+--
+-- A row plate is Size (1, 0, 0, rh) inside the scroll, so it touched the canvas
+-- on the left and the first one touched the top — and a UIStroke is drawn OUTSIDE
+-- the frame it belongs to, so the clip shaved those borders clean off. Every plate
+-- had a flat left edge and a rounded right one, which is what reads as "cut off at
+-- the edge": nothing overflowed, the outline was simply being sliced.
+--
+-- A few pixels of padding all round is the whole fix. The layout pass subtracts it
+-- back out of the row height, or the rows would overflow by exactly this much.
+local listPad = ensure(list, "UIPadding", "UIPadding")
+
 local listLayout = ensure(list, "UIListLayout", "UIListLayout")
 listLayout.FillDirection = Enum.FillDirection.Vertical
 listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -1201,6 +1213,15 @@ local function relayout()
 	-- FIXED, and sized so four rows fill the window: the list scrolls past that
 	-- rather than shrinking every row to fit. Dividing by #rows is what made a
 	-- nine-row panel unreadable.
+	-- Set before the rows are measured against it: UIPadding shrinks the content
+	-- area, so the height the rows divide up has to lose it too.
+	local pad = math.max(4, math.floor(h * 0.022))
+	listPad.PaddingLeft = UDim.new(0, pad)
+	listPad.PaddingRight = UDim.new(0, pad)
+	listPad.PaddingTop = UDim.new(0, pad)
+	listPad.PaddingBottom = UDim.new(0, pad)
+	h -= pad * 2
+
 	local gap = math.floor(h * 0.04)
 	-- 3.5 ROWS, and the half is the whole point. At a flat 4 the window divided
 	-- so four rows fitted it EXACTLY — and a row boundary landing on the clip edge

@@ -211,7 +211,49 @@ end
 -- UTC, not the server machine's local zone: Roblox servers run wherever Roblox
 -- puts them, so os.date("*t") would give a different sky per datacentre — which
 -- is the one thing "global time" must not do.
-local liveTime = true
+-- THE BASELINE SKY, applied once at startup so the published game and Studio
+-- agree and nothing depends on the place file having been saved with the right
+-- values. GameConfig.Lighting says what it is and why.
+local SKY = CONFIG.Lighting or {}
+
+local function child(className)
+	return Lighting:FindFirstChildOfClass(className)
+end
+
+local function applyTo(inst, values)
+	if not inst or not values then return end
+	for k, v in pairs(values) do
+		inst[k] = v
+	end
+end
+
+local function applyBaseline()
+	if SKY.ClockTime then Lighting.ClockTime = SKY.ClockTime end
+	if SKY.GeographicLatitude then Lighting.GeographicLatitude = SKY.GeographicLatitude end
+	if SKY.Ambient then Lighting.Ambient = SKY.Ambient end
+	if SKY.OutdoorAmbient then Lighting.OutdoorAmbient = SKY.OutdoorAmbient end
+	if SKY.ColorShiftTop then Lighting.ColorShift_Top = SKY.ColorShiftTop end
+	if SKY.ColorShiftBottom then Lighting.ColorShift_Bottom = SKY.ColorShiftBottom end
+	if SKY.Brightness then Lighting.Brightness = SKY.Brightness end
+	if SKY.ExposureCompensation then Lighting.ExposureCompensation = SKY.ExposureCompensation end
+	if SKY.ShadowSoftness then Lighting.ShadowSoftness = SKY.ShadowSoftness end
+	if SKY.EnvironmentDiffuseScale then Lighting.EnvironmentDiffuseScale = SKY.EnvironmentDiffuseScale end
+	if SKY.EnvironmentSpecularScale then Lighting.EnvironmentSpecularScale = SKY.EnvironmentSpecularScale end
+	if SKY.FogEnd then Lighting.FogEnd = SKY.FogEnd end
+	applyTo(child("ColorCorrectionEffect"), SKY.ColorCorrection)
+	applyTo(child("BloomEffect"), SKY.Bloom)
+	applyTo(child("Atmosphere"), SKY.Atmosphere)
+	applyTo(child("SunRaysEffect"), SKY.SunRays)
+end
+
+applyBaseline()
+
+-- FALSE, not true, and this is the change that makes the sky stay put. It used
+-- to default to live UTC, which meant the game looked however the clock in
+-- Greenwich happened to look — a flat grey afternoon or a night you could not
+-- read the plots in, depending on when somebody joined. The sky is pinned at the
+-- configured hour instead, and an admin pressing Live is what hands it back.
+local liveTime = false
 
 local function realClockTime()
 	local t = os.date("!*t")
@@ -222,6 +264,12 @@ local function applyTime(value)
 	if value == "Live" then
 		liveTime = true
 		Lighting.ClockTime = realClockTime()
+		return
+	end
+	if value == "Default" then
+		-- Back to the configured hour, which is what the game ships at.
+		liveTime = false
+		if SKY.ClockTime then Lighting.ClockTime = SKY.ClockTime end
 		return
 	end
 	if type(value) ~= "number" or value ~= value then return end
@@ -353,7 +401,7 @@ command.OnServerEvent:Connect(function(player, name, value)
 		applyGravity(value)
 	elseif name == "Time" then
 		-- Either a number or the literal "Live"; applyTime rejects anything else.
-		if type(value) == "number" or value == "Live" then
+		if type(value) == "number" or value == "Live" or value == "Default" then
 			applyTime(value)
 		end
 	elseif name == "BloodMoon" then
