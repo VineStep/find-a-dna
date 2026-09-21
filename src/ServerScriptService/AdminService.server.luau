@@ -230,8 +230,108 @@ local function applyTime(value)
 	Lighting.ClockTime = math.clamp(value, 0, 24)
 end
 
+--------------------------------------------------------------- blood moon
+-- GLOBAL, like gravity and time: it is a change to the SKY, and a sky that is
+-- red for one player and blue for the next is not a sky.
+--
+-- It PINS the clock while it is on, because a blood moon at two in the afternoon
+-- is just a red filter. Switching it off restores every property it touched and
+-- hands the clock back to whatever the Time row had — Live unless an admin pinned
+-- an hour.
+--
+-- THE ORIGINAL VALUES ARE CAPTURED, not hardcoded as a "normal" preset: the
+-- place's lighting is somebody's art and this has no business deciding what it
+-- should be. Captured on first use rather than at startup so a later re-tint is
+-- picked up, and only once, or turning it on twice would capture the red.
+local BLOOD = ADMIN.BloodMoon or {}
+local bloodOn = false
+local bloodWas = nil
+local bloodWasAtmos = nil
+local bloodWasLive = true
+
+-- The Atmosphere is a CHILD of Lighting, not a property of it, so it is captured
+-- and restored separately — and only if the place actually has one, because it
+-- is art somebody added and could be removed again.
+local function atmosphere()
+	return Lighting:FindFirstChildOfClass("Atmosphere")
+end
+
+local function captureAtmosphere()
+	local a = atmosphere()
+	if not a then return nil end
+	return { Density = a.Density, Color = a.Color, Decay = a.Decay,
+	         Haze = a.Haze, Glare = a.Glare }
+end
+
+local function applyAtmosphere(values)
+	local a = atmosphere()
+	if not a or not values then return end
+	for k, v in pairs(values) do
+		a[k] = v
+	end
+end
+
+local function captureLighting()
+	return {
+		ClockTime = Lighting.ClockTime,
+		Ambient = Lighting.Ambient,
+		OutdoorAmbient = Lighting.OutdoorAmbient,
+		Brightness = Lighting.Brightness,
+		ColorShift_Top = Lighting.ColorShift_Top,
+		ColorShift_Bottom = Lighting.ColorShift_Bottom,
+		FogColor = Lighting.FogColor,
+		FogEnd = Lighting.FogEnd,
+		FogStart = Lighting.FogStart,
+		ExposureCompensation = Lighting.ExposureCompensation,
+	}
+end
+
+local function applyBloodMoon(on)
+	on = on == true
+	if on == bloodOn then return end
+	bloodOn = on
+
+	if on then
+		bloodWas = captureLighting()
+		bloodWasAtmos = captureAtmosphere()
+		-- Remembered separately: the clock is pinned for the duration, and the Time
+		-- row's own state has to survive that.
+		bloodWasLive = liveTime
+		liveTime = false
+
+		Lighting.ClockTime = BLOOD.ClockTime or 0
+		Lighting.Ambient = BLOOD.Ambient or Color3.fromRGB(58, 12, 16)
+		Lighting.OutdoorAmbient = BLOOD.OutdoorAmbient or Color3.fromRGB(74, 14, 18)
+		Lighting.Brightness = BLOOD.Brightness or 1.4
+		Lighting.ColorShift_Top = BLOOD.ColorShiftTop or Color3.fromRGB(120, 24, 24)
+		Lighting.ColorShift_Bottom = BLOOD.ColorShiftBottom or Color3.fromRGB(40, 8, 10)
+		Lighting.FogColor = BLOOD.FogColor or Color3.fromRGB(46, 8, 12)
+		Lighting.FogEnd = BLOOD.FogEnd or 620
+		Lighting.FogStart = BLOOD.FogStart or 40
+		Lighting.ExposureCompensation = BLOOD.ExposureCompensation or -0.25
+		applyAtmosphere(BLOOD.Atmosphere)
+	elseif bloodWas then
+		for k, v in pairs(bloodWas) do
+			Lighting[k] = v
+		end
+		applyAtmosphere(bloodWasAtmos)
+		liveTime = bloodWasLive
+		if liveTime then
+			Lighting.ClockTime = realClockTime()
+		end
+	end
+
+	-- Published so a client can read the true state rather than what it last
+	-- asked for — the same rule the God pill follows.
+	workspace:SetAttribute("AdminBloodMoon", bloodOn)
+end
+
+workspace:SetAttribute("AdminBloodMoon", false)
+
 task.spawn(function()
 	while true do
+		-- liveTime is false for the whole of a blood moon, so this leaves the
+		-- pinned midnight alone without needing to know about it.
 		if liveTime then
 			Lighting.ClockTime = realClockTime()
 		end
@@ -256,6 +356,8 @@ command.OnServerEvent:Connect(function(player, name, value)
 		if type(value) == "number" or value == "Live" then
 			applyTime(value)
 		end
+	elseif name == "BloodMoon" then
+		applyBloodMoon(value == true)
 	end
 	-- Anything else is ignored in silence. A client naming a command that does not
 	-- exist is either a stale build or someone probing; neither deserves an answer.

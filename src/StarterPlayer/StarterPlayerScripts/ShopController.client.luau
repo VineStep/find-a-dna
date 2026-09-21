@@ -21,7 +21,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
-local SHOP = require(ReplicatedStorage:WaitForChild("GameConfig")).Shop
+local CONFIG = require(ReplicatedStorage:WaitForChild("GameConfig"))
+local SHOP = CONFIG.Shop
 local P = SHOP.Palette
 
 local player = Players.LocalPlayer
@@ -50,6 +51,25 @@ end
 
 local SFX_HOVER = uiSound(10066931761, 0.25)  -- "Hover 01"
 local SFX_CLICK = uiSound(10128760939, 0.45)  -- "Select 01"
+
+-- The reward chime, shared with the daily panel through GameConfig.Sfx so the
+-- two cannot drift into two different "you got it" sounds. Built with uiSound
+-- like the other two, so it lands groupless under SoundService and
+-- SettingsController adopts it into UISfx with them.
+--
+-- NOT first-party, unlike the pair above, so it is the one sound in this file
+-- that could in principle need the experience granted access to it — verified
+-- loading here (IsLoaded true, 0.94s), because it is a Creator Store PAGE id and
+-- audio needs no unwrapping the way an image does.
+--
+-- HONEST ABOUT WHAT IT MARKS: nothing in this panel buys anything — there is no
+-- purchase remote and no product ids — so this is the sound of PRESSING a buy
+-- control, not of a grant. When the remote exists it moves to the remote's reply
+-- and a refused purchase stops playing it.
+local SFX_REWARD = uiSound(
+	(CONFIG.Sfx and CONFIG.Sfx.Reward) or 130452529897520,
+	(CONFIG.Sfx and CONFIG.Sfx.RewardVolume) or 0.55
+)
 
 -- Every interactive thing in the shop gets the same pair, so it is one call rather
 -- than four copies of the same two Connects.
@@ -687,6 +707,10 @@ local function pillFeel(pill, base, cornerScale)
 	pill.MouseButton1Click:Connect(function()
 		TweenService:Create(pop, TweenInfo.new(0.16, Enum.EasingStyle.Back,
 			Enum.EasingDirection.Out), { Scale = 1.07 }):Play()
+		-- Every buy control in this panel comes through here — the feature banner's
+		-- pill and all three tier pills — so the chime is wired once rather than at
+		-- four call sites that would drift.
+		SFX_REWARD:Play()
 	end)
 
 	local content = Instance.new("Frame")
@@ -1180,6 +1204,10 @@ end
 -- that calls MarketplaceService:PromptProductPurchase with a real id; doing it from
 -- the client with a fake id would just error in front of the player.
 local function onPressed(_item)
+	-- The card is still inert as a PURCHASE. It is not inert as a press: the chime
+	-- says the game heard you, which is the one thing a dead button owes the
+	-- player until there is a remote behind it.
+	SFX_REWARD:Play()
 end
 
 local function makeCard(item, order)

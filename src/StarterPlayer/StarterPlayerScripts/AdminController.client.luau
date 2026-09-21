@@ -272,8 +272,16 @@ if not admin then
 	-- "Admin!" panel sitting in a stranger's PlayerGui is not something to rely on
 	-- invisibility for. The server refuses every request it could possibly send
 	-- regardless; this is the second lock, not the only one.
-	for _, name in ipairs({ "AdminPanel", "AdminButton" }) do
-		local stray = hud:FindFirstChild(name)
+	--
+	-- AdminSlot is in the list even though only an admin's own client ever builds
+	-- one, and that is on purpose: this runs against whatever is in the tree, not
+	-- against what this build of the controller would have made. A slot left in
+	-- StarterGui by hand — or by an earlier build — would otherwise put a crown in
+	-- a stranger's HUD grid and take a row of the bar with it.
+	-- Recursive, because AdminButton is a grandchild of ButtonBar now rather than
+	-- a child of the HUD root.
+	for _, name in ipairs({ "AdminPanel", "AdminButton", "AdminSlot" }) do
+		local stray = hud:FindFirstChild(name, true)
 		if stray then stray:Destroy() end
 	end
 	return
@@ -525,7 +533,27 @@ end
 -- right. Copied in shape rather than imported because SettingsController's
 -- makeRow closes over its own values table and pulling it into UIKit would be a
 -- refactor of a working panel for one caller.
-local function makeRow(index, name, blurb)
+--
+-- textWidth is THE fix for the overlap this panel shipped with. Every row put its
+-- name and blurb in a box 0.5 of the plate wide and then placed its controls
+-- wherever they fitted, and the two ran into each other on every row whose
+-- controls reach further left than halfway: "Live follows real world time, for
+-- everyone." passed underneath the Live key, and Music's blurb underneath Auto.
+-- TextScaled does not save you here — it fills the box it is given, and the box
+-- was simply too wide.
+--
+-- So the caller now states how much room its controls need, and the text box is
+-- sized to what is left. The figures are each row's control group measured off
+-- the plate, minus a gutter:
+--   toggle pill   right edge 0.97, width 0.20  -> free to 0.77
+--   stepper       minus key at 0.73, width 0.09 -> free to 0.685
+--   compose box   right edge 0.97, width 0.46  -> free to 0.51
+--   four keys     leftmost edge 0.385           -> free to 0.385
+-- TextTruncate is the backstop: a longer blurb added later shortens with an
+-- ellipsis instead of silently growing back under the controls.
+local function makeRow(index, name, blurb, textWidth)
+	textWidth = textWidth or 0.5
+
 	local plate = Instance.new("Frame")
 	plate.Name = name
 	plate.BackgroundColor3 = P.Panel
@@ -540,10 +568,11 @@ local function makeRow(index, name, blurb)
 	label.Name = "Label"
 	label.BackgroundTransparency = 1
 	label.Position = UDim2.fromScale(0.035, 0.12)
-	label.Size = UDim2.fromScale(0.5, 0.4)
+	label.Size = UDim2.fromScale(textWidth, 0.4)
 	label.Text = name
 	label.TextColor3 = P.BodyText
 	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextTruncate = Enum.TextTruncate.AtEnd
 	label.FontFace = FONT
 	label.TextScaled = true
 	label.ZIndex = Z_TEXT
@@ -555,7 +584,8 @@ local function makeRow(index, name, blurb)
 	sub.BackgroundTransparency = 1
 	sub.AnchorPoint = Vector2.new(0, 1)
 	sub.Position = UDim2.fromScale(0.035, 0.9)
-	sub.Size = UDim2.fromScale(0.5, 0.34)
+	sub.Size = UDim2.fromScale(textWidth, 0.34)
+	sub.TextTruncate = Enum.TextTruncate.AtEnd
 	sub.Text = blurb or ""
 	sub.TextColor3 = P.BodyText:Lerp(P.Panel, 0.42)
 	sub.TextXAlignment = Enum.TextXAlignment.Left
@@ -609,7 +639,7 @@ end
 
 ------------------------------------------------------------------- 1. message
 do
-	local plate, sub = makeRow(1, "Global Message", "Everyone sees it. Your name is on it.")
+	local plate, sub = makeRow(1, "Global Message", "Everyone sees it. Your name is on it.", 0.46)
 	local resting = sub.Text
 
 	local token = 0
@@ -719,7 +749,7 @@ end
 
 ----------------------------------------------------------------------- 2. fly
 do
-	local plate = makeRow(2, "Fly", "Space up, Shift down. Stick works too.")
+	local plate = makeRow(2, "Fly", "Space up, Shift down. Stick works too.", 0.72)
 	local paint = makeTogglePill(plate,
 		function() return flying end,
 		function(want)
@@ -741,7 +771,7 @@ end
 -- CanCollide, not a collision group: a group would need the server to define it,
 -- and every part has to be re-cleared anyway whenever the character changes.
 do
-	local plate = makeRow(3, "Noclip", "Walk through the world.")
+	local plate = makeRow(3, "Noclip", "Walk through the world.", 0.72)
 	local noclip = false
 	local clipConn
 
@@ -752,6 +782,10 @@ do
 			end
 		end
 	end
+
+	-- Anchoring is NOT part of this. A noclipped character still falls, which is
+	-- correct: walking through a wall and then through the floor is the same
+	-- feature, and Fly is the control for staying up.
 
 	local function stop()
 		noclip = false
@@ -774,15 +808,24 @@ do
 	local function start()
 		local char = player.Character
 		if not char then return end
-		clear(char)
-		-- Accessories and tools arrive after the character does, and each one
-		-- brings a collidable part with it.
-		clipConn = char.DescendantAdded:Connect(function(d)
-			if noclip and d:IsA("BasePart") then
-				d.CanCollide = false
-			end
-		end)
 		noclip = true
+
+		-- EVERY FRAME, not once. This is why noclip did not work: setting
+		-- CanCollide = false on the limbs at the moment you press the pill lasts
+		-- until the Humanoid's own state machine runs, and the Humanoid PUTS IT
+		-- BACK — continuously, as part of how it keeps a character standing on
+		-- things. A one-shot clear plus a DescendantAdded hook covers accessories
+		-- arriving and nothing else, so the character was solid again within a
+		-- frame of the toggle going green.
+		--
+		-- Stepped, before physics resolves for the frame, so the cleared flag is
+		-- what the simulation actually sees.
+		clipConn = RunService.Stepped:Connect(function()
+			if not noclip then return end
+			local c = player.Character
+			if not c then return end
+			clear(c)
+		end)
 	end
 
 	local paint = makeTogglePill(plate,
@@ -808,7 +851,7 @@ end
 -- client refusing to lower its own health has only persuaded itself. The pill
 -- reads the attribute the server publishes rather than what it last asked for.
 do
-	local plate = makeRow(4, "God", "Unkillable. The server enforces it.")
+	local plate = makeRow(4, "God", "Unkillable. The server enforces it.", 0.72)
 	local paint = makeTogglePill(plate,
 		function() return player:GetAttribute("AdminGod") == true end,
 		function(want)
@@ -867,7 +910,7 @@ end
 
 --------------------------------------------------------------------- 5. speed
 do
-	local plate, sub = makeRow(5, "Speed", "Applied by the server, so it is real.")
+	local plate, sub = makeRow(5, "Speed", "Applied by the server, so it is real.", 0.64)
 	makeStepper(plate, sub, ADMIN.Speeds or { 16 },
 		function(v) return tostring(v) end,
 		function(v) command:FireServer("Speed", v) end)
@@ -875,7 +918,7 @@ end
 
 ---------------------------------------------------------------------- 6. jump
 do
-	local plate, sub = makeRow(6, "Jump", "Server sets UseJumpPower with it.")
+	local plate, sub = makeRow(6, "Jump", "Server sets UseJumpPower with it.", 0.64)
 	makeStepper(plate, sub, ADMIN.Jumps or { 50 },
 		function(v) return tostring(v) end,
 		function(v) command:FireServer("Jump", v) end)
@@ -883,7 +926,7 @@ end
 
 ------------------------------------------------------------------- 7. gravity
 do
-	local plate, sub = makeRow(7, "Gravity", "GLOBAL. Changes physics for everyone.")
+	local plate, sub = makeRow(7, "Gravity", "GLOBAL. Changes physics for everyone.", 0.64)
 	makeStepper(plate, sub, ADMIN.Gravities or { 196.2 },
 		-- No decimal on the display: 196.2 is the only value with one and "196"
 		-- reads better in a 14px box than "196.2" does.
@@ -893,7 +936,7 @@ end
 
 ---------------------------------------------------------------------- 4. time
 do
-	local plate = makeRow(8, "Time", "Live follows real world time, for everyone.")
+	local plate = makeRow(8, "Time", "Real UTC, or pin it.", 0.34)
 	local times = ADMIN.Times or {}
 	-- Right-aligned as a group: the rightmost key sits where every other row's
 	-- control sits, and the rest run back from it. Narrower now that there are
@@ -916,7 +959,39 @@ do
 	end
 end
 
---------------------------------------------------------------------- 9. music
+--------------------------------------------------------------- 9. blood moon
+-- SERVER-APPLIED and GLOBAL, like Gravity and Time: it is a change to the sky,
+-- and a sky that is red for one player and blue for the next is not a sky.
+--
+-- The pill reads workspace's AdminBloodMoon attribute rather than what this
+-- client last asked for — the same rule the God pill follows, and for the same
+-- reason: the server owns the state and a second copy of it here can only drift.
+do
+	local plate, sub = makeRow(9, "Blood Moon", "Pins the sky at midnight.", 0.72)
+	local resting = sub.Text
+
+	local paint = makeTogglePill(plate,
+		function() return workspace:GetAttribute("AdminBloodMoon") == true end,
+		function(want)
+			command:FireServer("BloodMoon", want and true or false)
+			local said = want and "Rising." or "Back to the normal sky."
+			sub.Text = said
+			task.delay(2.6, function()
+				if sub.Text == said then sub.Text = resting end
+			end)
+		end)
+
+	-- REPAINT WHEN THE SERVER SAYS SO, exactly as the God pill does. The pill
+	-- reads an attribute the SERVER owns, and that attribute arrives a round trip
+	-- after the press — so without this the sky turns red and the pill still
+	-- reads OFF until something else happens to repaint it. Attribute-driven
+	-- state needs an attribute-driven repaint; the two go together.
+	workspace:GetAttributeChangedSignal("AdminBloodMoon"):Connect(function()
+		task.defer(paint)
+	end)
+end
+
+-------------------------------------------------------------------- 10. music
 -- CLIENT-SIDE, through the BindableFunction MusicController already publishes —
 -- no remote, because what one admin has playing in their own ears is nobody
 -- else's business. It is for auditioning a track without walking to the zone.
@@ -925,7 +1000,7 @@ end
 -- track on its next tick. Forcing is therefore a momentary thing by design, not
 -- a lock; a lock would need a flag in MusicController and there is no call for it.
 do
-	local plate, sub = makeRow(9, "Music", "Auditions a track. Auto to release.")
+	local plate, sub = makeRow(10, "Music", "Audition a track.", 0.34)
 	local zones = ADMIN.MusicZones or { "Auto" }
 	local api = game:GetService("SoundService"):FindFirstChild("SetMusicZone")
 	if not api then
@@ -971,17 +1046,35 @@ do
 end
 
 ------------------------------------------------------------------- the button
--- A crown key in the top-right. Created HERE, which is below the admin check, so
--- the instance does not exist on a non-admin client — the same rule the panel
--- follows, and the reason neither shows up in Studio's Edit viewport.
+-- A crown key in the TOP-RIGHT corner. Created HERE, which is below the admin
+-- check, so the instance does not exist on a non-admin client — the same rule the
+-- panel follows, and the reason neither shows up in Studio's Edit viewport.
+--
+-- It spent a revision as a seventh tile in the HUD's left grid and came back
+-- here by decision; GameConfig.Admin.Button records why. Nothing of the tile
+-- experiment survives except the cleanup below, which has to outlive it: a client
+-- whose StarterGui still carries the AdminSlot from that build would otherwise
+-- keep a crown in the grid AND grow one in the corner.
 local BTN = ADMIN.Button or {}
 local Z_BUTTON = 130   -- over the panels (50..63) and the bag (120), under the
                        -- message feed (200): the way in must not be coverable
 
--- Adopted, not created: it ships in StarterGui so it is visible in Studio's Edit
--- viewport, which means every player is sent one and the non-admin branch above
--- destroys it. ensure() is defined with buildShell, for the same reason.
-local button = ensure(hud, "AdminButton", "ImageButton")
+do
+	local slot = hud:FindFirstChild("AdminSlot", true)
+	if slot then slot:Destroy() end
+end
+
+-- Created rather than adopted. It used to ship in StarterGui so it would show in
+-- Studio's Edit viewport, which meant every player was sent one and the non-admin
+-- branch above had to destroy it. Building it here costs that Edit-mode preview
+-- and buys the guarantee that a non-admin never receives the instance at all —
+-- and the panel already makes that trade for the same reason.
+local button = hud:FindFirstChild("AdminButton")
+if not button or not button:IsA("ImageButton") then
+	if button then button:Destroy() end
+	button = Instance.new("ImageButton")
+	button.Name = "AdminButton"
+end
 button.AutoButtonColor = false
 button.AnchorPoint = Vector2.new(1, 0.5)
 -- Y is set in sizeButton, in PIXELS off the GUI inset — see the note there.
@@ -990,24 +1083,23 @@ button.Position = UDim2.fromScale((BTN.Pos or Vector2.new(0.975, 0.075)).X, 0)
 -- is — see makeTile's note in HUDController. It shipped as a bevelled violet key
 -- and that made it the only plated control on the screen, a lone purple square in
 -- a corner surrounded by cut-out icons.
---
--- Nothing is lost by dropping the plate: UIKit.feel already pops it to 1.12 and
--- tilts it 4 degrees on hover, which is the same feedback the tiles get and is
--- enough without a plate behind it to grow.
 button.BackgroundTransparency = 1
 button.BorderSizePixel = 0
-button.Image = ""
+button.Image = ADMIN.TitleIcon or ""
+button.ScaleType = Enum.ScaleType.Fit
 button.ZIndex = Z_BUTTON
 button.Visible = true
+button.Parent = hud
 
 -- A plate's furniture drawn on a transparent button is worse than useless: a
 -- UIStroke strokes the button's BORDER, so it would draw a rounded rectangle
--- around nothing, and a UIGradient from bevel() tints the artwork. They are
--- destroyed rather than skipped because the tree may still carry them from an
--- earlier build of this key.
+-- around nothing, and a UIGradient from bevel() tints the artwork. Destroyed
+-- rather than skipped because the tree may still carry them from an earlier
+-- build of this key — the Crown child with them, now that the image is on the
+-- button itself.
 for _, c in ipairs(button:GetChildren()) do
 	if c:IsA("UIStroke") or c:IsA("UICorner") or c:IsA("UIGradient")
-		or c.Name == "Gloss" then
+		or c.Name == "Gloss" or c.Name == "Crown" then
 		c:Destroy()
 	end
 end
@@ -1023,21 +1115,6 @@ btnAspect.DominantAxis = Enum.DominantAxis.Height
 local btnCap = ensure(button, "UISizeConstraint", "UISizeConstraint")
 btnCap.MinSize = Vector2.new(BTN.MinPx or 44, BTN.MinPx or 44)
 btnCap.MaxSize = Vector2.new(BTN.MaxPx or 84, BTN.MaxPx or 84)
-
--- Still a CHILD label rather than the button's own Image, now that there is no
--- gradient to hide from: a child can be scaled and nudged independently of the
--- button's hit area, and the hit area is what has to stay a full square for the
--- 44px tap floor.
-local btnIcon = ensure(button, "Crown", "ImageLabel")
-btnIcon.BackgroundTransparency = 1
-btnIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-btnIcon.Position = UDim2.fromScale(0.5, 0.5)
--- Fills it: with no plate around it the artwork IS the button, so the 0.78 it
--- sat at inside the key is just a smaller crown.
-btnIcon.Size = UDim2.fromScale(1, 1)
-btnIcon.Image = ADMIN.TitleIcon or ""
-btnIcon.ScaleType = Enum.ScaleType.Fit
-btnIcon.ZIndex = Z_BUTTON + 1
 
 --------------------------------------------------------------------- open/close
 local open = false
@@ -1092,6 +1169,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 ------------------------------------------------------------------- layout
+-- THE CORNER KEY'S OWN SIZE AND PLACE. It is not in a layout, so nothing else
+-- will do this for it — the one revision the crown spent as a grid tile was also
+-- the one revision this function did not exist, and bringing the key back to the
+-- corner without it left the crown parked at y = -80, above the top of the
+-- screen, exactly where an unset scale position lands.
 local function sizeButton()
 	local h = hud.AbsoluteSize.Y
 	if h <= 0 then return end
@@ -1100,10 +1182,10 @@ local function sizeButton()
 
 	-- THE GUI INSET. The HUD sets IgnoreGuiInset, so its local space starts about
 	-- 36px ABOVE the visible screen — the same trap InventoryController's
-	-- placeHeader documents. A scale position of 0.075 therefore put this key's
-	-- top edge 2px from the top of the display, under the topbar on a desktop and
-	-- into the notch on a phone. Anchored at its own centre, so the centre goes
-	-- one half-edge plus a margin below where the screen actually starts.
+	-- placeHeader documents. A scale position of 0.075 therefore put this key's top
+	-- edge 2px from the top of the display, under the topbar on a desktop and into
+	-- the notch on a phone. Anchored at its own centre, so the centre goes one
+	-- half-edge plus a margin below where the screen actually starts.
 	local inset = GuiService:GetGuiInset().Y
 	button.Position = UDim2.new(
 		(BTN.Pos or Vector2.new(0.975, 0.075)).X, 0,
@@ -1120,7 +1202,15 @@ local function relayout()
 	-- rather than shrinking every row to fit. Dividing by #rows is what made a
 	-- nine-row panel unreadable.
 	local gap = math.floor(h * 0.04)
-	local rh = math.max(math.floor((h - gap * 3) / 4), 1)
+	-- 3.5 ROWS, and the half is the whole point. At a flat 4 the window divided
+	-- so four rows fitted it EXACTLY — and a row boundary landing on the clip edge
+	-- is what made the fourth look sliced rather than scrolled: its UIStroke is
+	-- drawn outside the frame, so the clip cut the stroke and the plate ended in a
+	-- hard flat line. A deliberate half-row is the standard "more below"
+	-- affordance and nothing is cut at a boundary.
+	local visible = ADMIN.VisibleRows or 3.5
+	local gaps = math.floor(visible)
+	local rh = math.max(math.floor((h - gap * gaps) / visible), 1)
 	listLayout.Padding = UDim.new(0, gap)
 	for _, plate in ipairs(rows) do
 		plate.Size = UDim2.new(1, 0, 0, rh)

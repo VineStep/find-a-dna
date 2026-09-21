@@ -118,12 +118,29 @@ local barScale = bar:WaitForChild("Scale")
 local TILE_HEIGHT_SCALE = 0.1067
 local MIN_TAP_PX = 44
 
--- The left panel is a GRID now, not a column: five tiles at 2 across, 3 down.
+-- The left panel is a GRID now, not a column: six tiles at 2 across, 3 down.
 -- Settings and Car joined it, and nothing crosses to the right edge any more.
 local BAR_COLUMNS = 2
-local BAR_ROWS = 3
 local TILE_MIN_PX, TILE_MAX_PX = 44, 116
 local barGrid = bar:WaitForChild("UIGridLayout")
+
+-- COUNTED, not a constant. It was 3, which was true for exactly as long as the
+-- bar held six tiles — and AdminController now adds a SEVENTH on an admin's
+-- client only (the crown, which used to float alone in the top-right corner).
+-- A hardcoded 3 sized the bar to six cells and the crown hung out below it,
+-- underneath the coin and gem counters that hang off the bar's own bottom edge.
+--
+-- Deriving it means the bar is correct for whatever is actually parented to it
+-- and stays correct for the next tile, and it costs one GetChildren per resize.
+-- Non-admins are unaffected: they still have six children and still get 3 rows,
+-- which is the whole reason a seventh tile is allowed to exist at all.
+local function barRows()
+	local n = 0
+	for _, c in ipairs(bar:GetChildren()) do
+		if c:IsA("GuiObject") and c.Visible then n += 1 end
+	end
+	return math.max(math.ceil(n / BAR_COLUMNS), 1)
+end
 
 local function fitScale()
 	local h = hud.AbsoluteSize.Y
@@ -133,13 +150,14 @@ local function fitScale()
 	-- a pixel and UIGridLayout silently wraps the second column onto its own row.
 	local cell = math.floor(math.clamp(TILE_HEIGHT_SCALE * h, TILE_MIN_PX, TILE_MAX_PX))
 	local gap = math.floor(cell * 0.16)
+	local rows = barRows()
 	barGrid.CellSize = UDim2.fromOffset(cell, cell)
 	barGrid.CellPadding = UDim2.fromOffset(gap, gap)
 	-- Size the bar to the grid exactly, in pixels. Left as a scale it either
 	-- clipped the last row or left a dead column the tiles did not fill.
 	bar.Size = UDim2.fromOffset(
 		BAR_COLUMNS * cell + (BAR_COLUMNS - 1) * gap,
-		BAR_ROWS * cell + (BAR_ROWS - 1) * gap
+		rows * cell + (rows - 1) * gap
 	)
 	barScale.Scale = 1
 end
@@ -158,6 +176,12 @@ local function relayout()
 end
 
 hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+-- AdminController parents its tile here AFTER the server has answered WhoAmI,
+-- which is well after this point — so the bar has to re-fit on the child arriving
+-- rather than only on a viewport resize. Without this an admin sees the crown
+-- overlapping the coin counter until they resize the window.
+bar.ChildAdded:Connect(relayout)
+bar.ChildRemoved:Connect(relayout)
 relayout()
 
 -- Exposed so the badge can be driven from outside once something authoritative

@@ -177,11 +177,18 @@ local close = kit.close
 
 --------------------------------------------------------------------- the rail
 -- A white capsule overhanging the panel's left edge, running nearly its full
--- height, with one round icon cell per Rail entry. Every cell is inert ON
--- PURPOSE — there is nothing behind any of them yet — so they are Frames and not
--- buttons, and none is drawn as selected. A dead button that pops when you press
--- it is worse than a label, and a highlight on one of six cells that all do
--- nothing is worse still.
+-- height, with one round icon cell per Rail entry.
+--
+-- THE CELLS ARE LIVE NOW, after being inert through two rebuilds. The standing
+-- objection was never to the highlight itself — it was that a highlight on one of
+-- six cells that all did nothing promised navigation the panel did not have, and
+-- a dead button that pops when you press it is worse than a label. Pressing a
+-- cell now genuinely changes what the grid shows, so both objections are spent:
+-- they are TextButtons, one is drawn selected, and the selected one is the truth.
+--
+-- Only Pets has a roster behind it. The other four are not hidden and not drawn
+-- as disabled — a rail with one cell on it reads as broken, and the shape is what
+-- is being built here — they simply show an empty shelf, which is what they are.
 local rail = Instance.new("Frame")
 rail.Name = "Rail"
 rail.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -213,9 +220,20 @@ railList.SortOrder = Enum.SortOrder.LayoutOrder
 railList.Padding = UDim.new(RAIL_GAP, 0)
 railList.Parent = rail
 
+-- Which rail cell is lit, and what the grid is therefore showing. Declared
+-- before the loop because each cell's paint() closes over it, and assigned from
+-- config so "which one opens selected" is a design decision and not a line of
+-- controller code.
+local category = INV.DefaultCategory or (INV.Rail[1] and INV.Rail[1].Category) or "Pets"
+-- Assigned after the grid exists; the cells call it, and they are built first.
+local applyCategory
+local railPaint = {}
+
 for i, entry in ipairs(INV.Rail) do
-	local tile = Instance.new("Frame")
+	local tile = Instance.new("TextButton")
 	tile.Name = entry.Name
+	tile.AutoButtonColor = false
+	tile.Text = ""
 	tile.LayoutOrder = i
 	-- A generous free axis, then squared by the constraint. A
 	-- UIAspectRatioConstraint only ever SHRINKS — it never derives a zero axis —
@@ -227,29 +245,27 @@ for i, entry in ipairs(INV.Rail) do
 	tile.Size = UDim2.fromScale(1, RAIL_CELL / RAIL_H)
 	tile.BorderSizePixel = 0
 	tile.ZIndex = 57
+	-- BARE ARTWORK, no disc. The cells were moulded grey circles with the icon sat
+	-- inside them, and five plates stacked down the rail made the rail read as the
+	-- subject — five buttons you look at before you look at what is on them. The
+	-- HUD's own tiles dropped their plates for exactly this reason (see makeTile in
+	-- HUDController) and this is the same argument one panel further in: the icon
+	-- IS the control.
+	--
+	-- The button keeps its full square hit area — only the paint is gone — so the
+	-- 44px tap floor the rail was sized against still holds.
+	tile.BackgroundTransparency = 1
 	local ar = Instance.new("UIAspectRatioConstraint")
 	ar.AspectRatio = 1
 	ar.Parent = tile
-	-- CIRCLES. A square cell inside a capsule is two different corner radii in one
-	-- control; round cells in a round column is one shape repeated.
-	kit:corner(tile, 0.5)
 
-	-- NO SELECTED STATE. Every cell is drawn the same. The highlight said "you are
-	-- looking at Pets" while the other five cells did nothing at all when pressed,
-	-- which promised navigation this panel does not have. When a rail cell can
-	-- actually change what the grid shows, the highlight comes back with it.
-	--
-	-- Moulded, not flat: the shop's own bevel and gloss, in grey. Flat discs were
-	-- the only surface in the panel that was not plastic, and next to the +
-	-- key — which is built from the same two calls — they read as holes.
-	UIKit.bevel(tile, {
-		P.Ink:Lerp(P.Panel, 0.95),
-		P.Ink:Lerp(P.Panel, 0.74),
-	})
-	UIKit.gloss(tile, 0.46, 0.5, 0.82)
-
+	-- No bevel, no gloss, no ring. All three painted the disc that is gone; a
+	-- UIStroke in particular would now draw a rounded rectangle around a
+	-- transparent box, which is the exact failure the admin key's comment
+	-- documents.
+	local im
 	if entry.Icon then
-		local im = Instance.new("ImageLabel")
+		im = Instance.new("ImageLabel")
 		im.Name = "Icon"
 		im.BackgroundTransparency = 1
 		im.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -265,6 +281,35 @@ for i, entry in ipairs(INV.Rail) do
 		im.ZIndex = 58
 		im.Parent = tile
 	end
+
+	-- SELECTION WITHOUT A PLATE. With the disc gone there is no surface left to
+	-- re-colour, so the lit cell is carried by the artwork itself: full size and
+	-- full strength, against the others held back and faded. That is the same
+	-- treatment the HUD tiles use for hover, and it is legible on a phone without
+	-- putting a coloured box back under the icon.
+	--
+	-- The scale lives on the ICON, not on the cell: the cells are laid out by a
+	-- UIListLayout and growing one would shove the four below it down the rail.
+	local function paint()
+		local on = entry.Category == category
+		if im then
+			im.Size = UDim2.fromScale(on and 1 or 0.82, on and 1 or 0.82)
+			-- 0.42 is a long way back, and deliberately: at 0.2 the four unselected
+			-- icons still read as five equal marks and nothing looked chosen.
+			im.ImageTransparency = on and 0 or 0.42
+		end
+	end
+	railPaint[i] = paint
+	paint()
+
+	UIKit.audible(tile)
+	UIKit.feel(tile, { Grow = 1.08, Tilt = 0 })
+	tile.MouseButton1Click:Connect(function()
+		if entry.Category == category then return end
+		category = entry.Category
+		for _, f in ipairs(railPaint) do f() end
+		if applyCategory then applyCategory() end
+	end)
 
 	tile.Parent = rail
 end
@@ -1037,6 +1082,53 @@ noMatch.Visible = false
 kit:capText(noMatch, 0.24)
 noMatch.Parent = scroll
 
+-------------------------------------------------------------- the empty shelf
+-- What a rail cell with no roster behind it shows. Two lines, centred on the
+-- scroll, and NOT the same object as noMatch: that one means "your search
+-- matched nothing", which is a different sentence and only ever appears under
+-- Pets. Sharing one label would make the panel say "No pet by that name." on the
+-- Cars shelf.
+--
+-- Parented to the SCROLL rather than drawn over the panel, so it obeys the same
+-- clip and the same layout everything else on this panel does. LayoutOrder 5,
+-- after noMatch — the two are never visible at once.
+local empty = Instance.new("Frame")
+empty.Name = "EmptyShelf"
+empty.BackgroundTransparency = 1
+empty.Size = UDim2.new(1, 0, 0, 1)
+empty.LayoutOrder = 5
+empty.ZIndex = 53
+empty.Visible = false
+empty.Parent = scroll
+
+local emptyLine = Instance.new("TextLabel")
+emptyLine.Name = "Line"
+emptyLine.BackgroundTransparency = 1
+emptyLine.AnchorPoint = Vector2.new(0.5, 1)
+emptyLine.Position = UDim2.fromScale(0.5, 0.5)
+emptyLine.Size = UDim2.fromScale(0.9, 0.3)
+emptyLine.Text = INV.EmptyLine or "Nothing here yet!"
+emptyLine.TextColor3 = P.Ink
+emptyLine.FontFace = FONT
+emptyLine.TextScaled = true
+emptyLine.ZIndex = 54
+kit:capText(emptyLine, 0.30)
+emptyLine.Parent = empty
+
+local emptySub = Instance.new("TextLabel")
+emptySub.Name = "Sub"
+emptySub.BackgroundTransparency = 1
+emptySub.AnchorPoint = Vector2.new(0.5, 0)
+emptySub.Position = UDim2.fromScale(0.5, 0.56)
+emptySub.Size = UDim2.fromScale(0.9, 0.22)
+emptySub.Text = ""
+emptySub.TextColor3 = P.BodyText:Lerp(P.Panel, 0.4)
+emptySub.FontFace = FONT
+emptySub.TextScaled = true
+emptySub.ZIndex = 54
+kit:capText(emptySub, 0.22)
+emptySub.Parent = empty
+
 -- THE SCRIBBLE CULL.
 --
 -- A CanvasGroup is NOT clipped by an ancestor's ClipsDescendants. The scroll sets
@@ -1132,7 +1224,49 @@ function rebuildGrid()
 	relayout()
 end
 
-box:GetPropertyChangedSignal("Text"):Connect(rebuildGrid)
+-- WHAT THE RAIL SWITCHES. Pets is the shelf-plus-grid the panel has always been;
+-- every other category is the same panel with its contents swapped for a line
+-- saying the shelf is empty.
+--
+-- Everything is toggled by Visible rather than destroyed and rebuilt: the shelf
+-- and its ten tiles are ViewportFrames holding cloned pet models, and throwing
+-- those away and re-cloning them on every rail press would be the most expensive
+-- thing this panel does, for a state the player flips back to immediately.
+--
+-- The search field stays visible and keeps working, because it searches Pets and
+-- switching back to Pets should not have silently cleared it.
+function applyCategory()
+	local pets = category == "Pets"
+	headRow.Visible = pets
+	shelf.Visible = pets
+	divider.Visible = pets
+	grid.Visible = pets
+	empty.Visible = not pets
+
+	if pets then
+		rebuildGrid()
+	else
+		noMatch.Visible = false
+		-- Named after the cell that was pressed, so the panel says "Cars are
+		-- coming soon." rather than a generic line that could be any of the four.
+		emptySub.Text = (INV.EmptySub or "%s are coming soon."):format(category)
+		-- cullScribbles walks shelf and grid looking for scribbles to hide against
+		-- the scroll window. Both are invisible now, and a hidden parent does not
+		-- hide a CanvasGroup child that ZIndexBehavior.Global has hoisted out of
+		-- it — the same escape the cull exists to work around. Rebuilding the grid
+		-- EMPTY is what actually removes them.
+		for _, c in ipairs(grid:GetChildren()) do
+			if c:IsA("GuiObject") then c:Destroy() end
+		end
+		relayout()
+	end
+end
+
+box:GetPropertyChangedSignal("Text"):Connect(function()
+	-- Typing in the search box only means anything on Pets, and a keystroke must
+	-- not drag the panel back there from another cell.
+	if category == "Pets" then rebuildGrid() end
+end)
 
 ------------------------------------------------------------------ header place
 -- Every piece of header chrome is centred ON the panel's top edge, which is what
@@ -1224,6 +1358,11 @@ kit:onLayout(function()
 
 	divider.Size = UDim2.new(0.99, 0, 0, math.max(2, math.floor(cellW * 0.035)))
 	noMatch.Size = UDim2.new(1, 0, 0, noMatch.Visible and math.max(1, cellW * 0.6) or 1)
+	-- Taller than noMatch because it carries two lines, and collapsed to a
+	-- hairline when hidden for the same reason noMatch is: a full-height invisible
+	-- frame in a UIListLayout still takes its row, which would push the shelf down
+	-- by a cell and a half on the Pets view.
+	empty.Size = UDim2.new(1, 0, 0, empty.Visible and math.max(1, cellW * 2.2) or 1)
 end)
 
 function relayout()
@@ -1266,5 +1405,7 @@ hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
 -- after the panel settles rather than at the same instant.
 panel:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeHeader)
 
-rebuildGrid()
+-- Opens on INV.DefaultCategory, which is Pets. applyCategory calls rebuildGrid
+-- for that one, so this still does everything the bare rebuildGrid did.
+applyCategory()
 task.defer(relayout)

@@ -606,6 +606,15 @@ refresh = function()
 	end
 end
 
+-- The reward chime, shared with the shop through GameConfig.Sfx so the two
+-- panels cannot drift into two different "you got it" sounds. Created once and
+-- reused; UIKit.sound leaves it groupless, which is what lets SettingsController
+-- adopt it into UISfx and put it under the sound slider.
+local SFX_REWARD = UIKit.sound(
+	(CONFIG.Sfx and CONFIG.Sfx.Reward) or 130452529897520,
+	(CONFIG.Sfx and CONFIG.Sfx.RewardVolume) or 0.55
+)
+
 claim = function(day)
 	-- CLIENT-ONLY, and deliberately loud about it: there is no remote to fire and
 	-- nothing is granted. All this does is advance the local streak so the ladder
@@ -613,6 +622,10 @@ claim = function(day)
 	-- the replicated streak to come back instead of moving it itself.
 	if day ~= streak + 1 then return end
 	streak = math.min(streak + 1, 7)
+	-- AFTER the guard, not before: a press on a day that is not the claimable one
+	-- returns above, and a chime for a claim that did not happen is the panel
+	-- lying about what it just did.
+	SFX_REWARD:Play()
 	refresh()
 end
 

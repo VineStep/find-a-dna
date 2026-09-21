@@ -96,6 +96,18 @@ local COIN_S = "rbxassetid://109678637627142"
 local COIN_M = "rbxassetid://101588193234939"
 local COIN_L = "rbxassetid://96948739390264"
 
+-- THE REWARD CHIME, played when the player is GIVEN something: a daily card
+-- claimed, anything pressed in the shop. One id in one place because the two
+-- panels must not drift into two different "you got it" sounds — that is the
+-- same argument the coin set makes about six creators' coins being six
+-- currencies as far as a player is concerned.
+--
+-- A Creator Store PAGE id, used verbatim. That works for audio and only for
+-- audio: an image served from a store page is wrapped in a Decal and has to be
+-- unwrapped first (see the EGG note), but a sound has no wrapper. Verified here:
+-- SoundId set, IsLoaded true, TimeLength 0.94s.
+local SFX_REWARD = 130452529897520
+
 -- THE TIKTOK. One constant because it is about to be drawn in more than one
 -- place — codes drop there, so the codes row names it — and a handle typed twice
 -- is a handle that goes stale once.
@@ -124,6 +136,14 @@ local GEM_L = "rbxassetid://102260103936882"
 local CROWN = "rbxassetid://135359935892473"
 
 return {
+	-- Sounds shared by more than one panel. Anything used by exactly one panel
+	-- stays in that panel's own block (Inventory.PetHoverSound is the example);
+	-- this table exists for the ones that would otherwise be typed twice.
+	Sfx = {
+		Reward = SFX_REWARD,
+		RewardVolume = 0.55,
+	},
+
 	Sprint = {
 		BaseWalkSpeed = 16,
 		SprintWalkSpeed = 28,
@@ -459,31 +479,40 @@ return {
 		-- landing exactly on a surface intersects it; a short drop is what the
 		-- reference games do and it costs nothing.
 		DropHeight = 6,
+		-- THREE PLACES, down from six. The Mine, Merchant and Fuse Machine were cut
+		-- on 2026-09-21 — not because their coordinates were wrong (they were
+		-- measured and they worked) but because a portal is a promise that there is
+		-- something to do where it drops you, and at those three there is not. The
+		-- ore cluster and the merchant stall are set dressing with no interaction on
+		-- them at all, and the Fuse Machine's job moved onto the DNA machine, which
+		-- you walk up to rather than teleport to. Bringing one back is a row here
+		-- and nothing else; do it when the destination does something.
 		Places = {
 			{ Name = "Home", Blurb = "The spawn ring and your plots.",
 			  Pos = Vector3.new(-166, -71, -195),
 			  Icon = "rbxassetid://128442519585600", Grad = GREEN },
-			{ Name = "Fuse Machine", Blurb = "Where two strands become one.",
-			  Pos = Vector3.new(-109, -63, -438),
-			  Icon = "rbxassetid://111762720282001", Grad = VIOLET },
-			-- The centroid of the ore and rail pieces, not the first thing found at
-			-- that depth: 7,-209,11481 looked right on paper and drops you on the
-			-- flat white PET STAGING plate, which is not game content at all. The
-			-- seams are at z 11661..11680, the cart and rail at 11817.
-			{ Name = "The Mine", Blurb = "Coal, iron, gold and better.",
-			  Pos = Vector3.new(28, -206, 11670),
-			  Icon = COIN_L, Grad = GOLD },
-			{ Name = "Merchant", Blurb = "Trades ore for anything shiny.",
-			  Pos = Vector3.new(50, -205, 11869),
-			  Icon = "rbxassetid://115638707143734", Grad = CYAN },
-			-- The two areas the music zones are cut from, which the portal list did
-			-- not have. Both Pos figures are where a character actually COMES TO
-			-- REST after being dropped there, read off HumanoidRootPart rather than
-			-- taken off the geometry: the cave's floor is not where the enclosure's
-			-- floor slab is, there is something solid at y 10.5, and a landing
-			-- computed from the slab would have dropped the player through it.
-			{ Name = "The Cave", Blurb = "Dark, timbered and full of ore.",
-			  Pos = Vector3.new(800, 11, -330),
+			-- WRONG PLACE FOR A REVISION, and worth recording because the name
+			-- collision is still in the file. There are TWO things in this place
+			-- called "cave":
+			--
+			--   Workspace.Cave      a real torch-lit cavern at x 240, z -11. Floor
+			--                       slab top y -18.2, ceiling y -1..14, and the 27
+			--                       Workspace.torch models all sit in it.
+			--   the Music "Cave"    a 241x88x277 box at x 783, z -298 — which is
+			--     zone below        the MINE cavern, with the rails, the carts and
+			--                       the mineshaft plate inside it.
+			--
+			-- This portal pointed at (800, 11, -330), which is in the second one —
+			-- about 60 studs from the Mineshaft portal's own landing spot. So the
+			-- two portals dropped you in the same timbered mine and neither went to
+			-- the cave. It now goes to the cave with the torches in it.
+			--
+			-- Pos is where a character actually COMES TO REST after being dropped
+			-- there, read off HumanoidRootPart rather than taken off the geometry:
+			-- the floor is uneven (rest height ranges -6 to -15 across the chamber)
+			-- and a landing computed from the slab would be wrong nearly everywhere.
+			{ Name = "The Cave", Blurb = "Dark, torchlit and full of ore.",
+			  Pos = Vector3.new(239.5, -15.4, -11.5),
 			  Icon = GEM_L, Grad = CYAN },
 			-- ICON DEBT, and deliberate: COIN_S is the game's own coin at its
 			-- smallest tier and this bends the amount-tier rule the coin block
@@ -582,15 +611,20 @@ return {
 		TitleIcon = CROWN,
 		Keybind = Enum.KeyCode.F2,
 
-		-- THE BUTTON. Not a seventh tile in the HUD grid: that grid is a full 2x3,
-		-- a seventh cell reflows it for every player, and it would be carrying a
-		-- control almost nobody can open. This is a standalone key in the top-right
-		-- corner instead — free space, since HUDController turns off Roblox's own
-		-- leaderboard, and the message feed is top-CENTRE.
+		-- THE BUTTON. A standalone key in the TOP-RIGHT corner — free space, since
+		-- HUDController turns off Roblox's own leaderboard and the message feed is
+		-- top-CENTRE.
+		--
+		-- It spent one revision as a seventh tile in the HUD's left grid and came
+		-- back here by decision. Both placements work; the corner is the one that
+		-- keeps the left stack meaning "things every player has". A seventh cell
+		-- reflows that stack into 2x4 on an admin's screen and nobody else's, so
+		-- the one player who most needs to recognise the HUD at a glance is the one
+		-- looking at a different HUD from everyone they are moderating.
 		--
 		-- Built at runtime by AdminController, after the server has answered, so a
 		-- non-admin is never sent the instance at all. That also keeps it out of
-		-- Studio's Edit viewport, which is where the admin panel was in the way.
+		-- Studio's Edit viewport.
 		--
 		-- F2 still works and is still the faster way in. This exists because the
 		-- keybind is invisible — and because touch has no F2 at all, which was the
@@ -658,6 +692,473 @@ return {
 		-- 30s of real time at ClockTime's resolution, so anything tighter is
 		-- writing the same number repeatedly.
 		TimeSync = 30,
+
+		-- HOW MANY ROWS FILL THE SCROLL WINDOW, and the .5 is the whole point.
+		--
+		-- It was a flat 4, which divided the window so four rows fitted it exactly
+		-- — and a row boundary landing exactly on the clip edge is what made the
+		-- fourth row look SLICED rather than scrolled. Its UIStroke is drawn
+		-- outside the frame, so the clip cut the stroke off and the plate ended in
+		-- a hard flat line.
+		--
+		-- At 3.5 the fourth row is deliberately half-visible. Nothing is cut at a
+		-- boundary, the half-row is the standard "there is more below" affordance,
+		-- and the rows come out bigger (about 85px against 76) into the bargain.
+		VisibleRows = 3.5,
+
+		-- THE BLOOD MOON. Server-applied and GLOBAL, like Gravity and Time — it is
+		-- a change to the sky, and a sky that is red for one player and blue for
+		-- the next is not a sky.
+		--
+		-- It PINS the clock the way Dawn/Noon/Night do, because a blood moon at
+		-- two in the afternoon is just a red filter. Turning it off hands the time
+		-- back to whatever the Time row was last set to, which is Live unless an
+		-- admin pinned it.
+		--
+		-- Every value here is a DELTA from the place's own lighting, captured on
+		-- the server the first time it is switched on and restored when it is
+		-- switched off — so re-tinting the game does not strand these numbers.
+		BloodMoon = {
+			ClockTime = 0,
+			Ambient = Color3.fromRGB(58, 12, 16),
+			OutdoorAmbient = Color3.fromRGB(74, 14, 18),
+			Brightness = 1.4,
+			-- The moon itself, tinted through ColorShift_Top, plus a red haze on
+			-- the horizon. FogEnd is what makes it feel close rather than merely
+			-- dark; the place ships with fog effectively off at 100000.
+			ColorShiftTop = Color3.fromRGB(120, 24, 24),
+			ColorShiftBottom = Color3.fromRGB(40, 8, 10),
+			FogColor = Color3.fromRGB(46, 8, 12),
+			FogEnd = 620,
+			FogStart = 40,
+			-- Pushed down, not up: a blood moon is a dark night with one red light
+			-- in it, and lifting exposure turns it into a red afternoon.
+			ExposureCompensation = -0.25,
+
+			-- THE ATMOSPHERE, and without it the effect only half lands. The place
+			-- has an Atmosphere whose Color is near-cyan, and it owns the HORIZON —
+			-- so with only the Lighting properties changed the ground and cliffs
+			-- went red while a bright blue band sat across the skyline behind them,
+			-- which is the one part of the frame the eye goes to. Density up and
+			-- Haze well up is what closes the distance and makes it feel like a
+			-- night you cannot see far into.
+			Atmosphere = {
+				Density = 0.42,
+				Color = Color3.fromRGB(120, 34, 30),
+				Decay = Color3.fromRGB(58, 12, 14),
+				Haze = 2.4,
+				Glare = 0.35,
+			},
+		},
+	},
+
+	-- THE DNA MACHINE — the first thing in this game you walk up to rather than
+	-- press a HUD tile for, and the reason the Fuse Machine portal was deleted
+	-- from Teleport.Places above. A machine you teleport to is furniture; a
+	-- machine you find is a place.
+	--
+	-- STILL CLIENT-ONLY, and honest about it. Picking two strands and pressing
+	-- SPLICE shows you the result and grants nothing, because granting needs a
+	-- server and this game has exactly one server script. The seam is deliberate
+	-- and narrow: FuseController computes the outcome in one function, and the
+	-- day that becomes a RemoteFunction call nothing else in the file moves.
+	Fuse = {
+		-- Found by name under Workspace. The model's name carries a lowercase "n"
+		-- and a space; that is what is actually in the place and renaming it there
+		-- would strand the world dump in tree/.
+		ModelName = "Dna machine",
+
+		Title = "Splice!",
+		TitleIcon = COIN_S,
+
+		-- THE PLATE over the machine. It is a CLICK TARGET, not a key prompt.
+		--
+		-- A real ProximityPrompt with Style = Custom drove this for several
+		-- revisions and was the right call while the interaction was "press E" —
+		-- it brought Roblox's distance tracking, its arbitration and its touch
+		-- button for free. With the key gone, all that was left of it was a second
+		-- distance check that could disagree with the highlight's, so it went too.
+		-- WorldPrompt owns the whole widget now and both callers share it.
+		Prompt = {
+			ActionText = "Splice",
+			ObjectText = "DNA MACHINE",
+			-- NO KeyCode and no key cap. Clicking the plate or the machine is the
+			-- only way in, so a key legend would be an instruction to press
+			-- something that does nothing.
+			--
+			-- The plate now appears at the SAME range the border does — see
+			-- Select.ShowDistance — rather than at a short press-range of its own.
+			-- A machine that lights up from across the plot and only tells you what
+			-- it is once you are standing in it was telling you last.
+			HoldDuration = 0,
+			-- Studs above the box top the plate floats; 0 puts it at the centre,
+			-- which is where Roblox's own default prompt drew. It spent a revision
+			-- four studs above the roof, which on a two-storey tank is the sky.
+			Rise = 0,
+			-- Billboard height in STUDS, and its aspect. Studs rather than pixels so
+			-- it shrinks with distance like the object it belongs to; a pixel-sized
+			-- billboard is the same size across the whole map and stops reading as
+			-- attached to anything.
+			Height = 3.6,
+			Aspect = 3.15,
+			-- THE POP. In with a Back ease, out faster and plain — the same
+			-- asymmetry every panel in this game opens and closes with. Without it
+			-- the plate blinks on at a fixed radius, which reads as a rendering
+			-- glitch rather than as the machine noticing you.
+			PopIn = 0.24,
+			PopOut = 0.14,
+			-- The scale it springs from and collapses back to.
+			PopFrom = 0.4,
+		},
+
+		-- THE SELECTION, and it is ONE effect now: a Highlight on the model. That
+		-- IS the machine's border — it traces the real silhouette rather than a box
+		-- approximating it.
+		--
+		-- THE DASHED OUTLINE IS GONE, after three attempts. A rectangle on the
+		-- FLOOR marked the area the machine stands in rather than the machine; one
+		-- cage round the model's bounding box was a box in the air; a cage per big
+		-- part traced the shape but cost 184 marching bricks and read busy. All
+		-- three were a lot of machinery to say "this object", and the Highlight
+		-- says it directly. Bringing one back means a DashLength/DashGap/DashWidth
+		-- block here and the edge walk in the controller; nothing else reads them.
+		--
+		-- NOTE WHAT IS NOT AVAILABLE: Highlight has FillColor, FillTransparency,
+		-- OutlineColor, OutlineTransparency and DepthMode and NOTHING ELSE. There is
+		-- no thickness property, so "stronger" cannot mean wider — it means the
+		-- three levers below.
+		Select = {
+			-- CYAN, not white, and this is the single biggest gain. A white contour
+			-- on a pale grey machine under a bright sky is white on white and it
+			-- vanished at any distance. Cyan is the game's own accent — the selected
+			-- rail cell and the armed slot ring are already this colour — so it
+			-- reads as "picked" rather than as a new colour for one object.
+			FillColour = Color3.fromRGB(168, 230, 255),
+			OutlineColour = Color3.fromRGB(74, 176, 232),
+			-- Fully opaque. There is nowhere further to go on the contour itself.
+			OutlineTransparency = 0,
+
+			-- ALWAYSONTOP, which is the OTHER half of "stronger" and the thing that
+			-- actually made it a border. Occluded draws the contour only where the
+			-- object is already visible, and most of this machine is a glass tank —
+			-- so a cyan outline at full opacity still came out as a faint edge you
+			-- had to look for. Forced in front, it is a hard line round the
+			-- silhouette.
+			--
+			-- It was rejected twice before on a real objection: the machine is big
+			-- enough to stand inside, and an always-on-top FILL paints over the
+			-- whole world through it. That objection is about the fill, not the
+			-- contour — so the fill goes nearly transparent and the outline does the
+			-- work. Both halves of this pair have to move together; raise the fill
+			-- again and the paint-through comes back.
+			DepthMode = "AlwaysOnTop",
+			FillTransparency = 0.88,
+			-- What the fill goes to while the pointer is ON the machine. A visible
+			-- step, and still light enough not to flood the screen from inside.
+			HoverFillTransparency = 0.72,
+
+			-- HOW FAR THE MACHINE IS LIVE, in studs: the border, the plate and the
+			-- click all use this one figure. It was 24 — the old prompt's range —
+			-- which meant the machine only lit up once you were already walking
+			-- into it, the one moment you can already see it.
+			--
+			-- ONE range, not two. An earlier pass gave the border 140 and left the
+			-- plate at 24, which is a machine that glows from across the plot and
+			-- will not say what it is until you are on top of it.
+			ShowDistance = 140,
+			-- Seconds between distance checks. A vector subtract is nothing, but
+			-- this does not need to run every frame to catch somebody walking.
+			ShowPoll = 0.25,
+
+			-- THE FILL GETS STRONGER WITH DISTANCE, which is the other half of
+			-- "visible from farther" and the half that actually shows.
+			--
+			-- Turning the border on at 140 studs was not enough on its own: a
+			-- Highlight's contour is a fixed ~2px in SCREEN space, so on a machine
+			-- that is eighty pixels tall it is a hairline you have to look for. The
+			-- two jobs are different at the two ranges — far away it has to say
+			-- "there is a thing over there", which needs MASS; up close it has to
+			-- say "this is its edge", which needs PRECISION and must not wash out
+			-- the object you are looking at. So the fill ramps between them and the
+			-- contour stays constant.
+			FarFillTransparency = 0.55,
+			-- Studs at which the far value is fully reached; below NearFillAt it is
+			-- entirely the near value, and it lerps between the two.
+			FarFillAt = 90,
+			NearFillAt = 24,
+		},
+
+		-- PRESSING THE MACHINE. A ClickDetector on the model, so walking up and
+		-- clicking it opens the screen — the prompt's key is now the shortcut
+		-- rather than the only way in. Hover and press both answer: the Highlight
+		-- steps up under the pointer, the plate pops, and both use the HUD's own
+		-- hover and click samples so the machine sounds like the rest of the game.
+		Click = {
+			-- The click range is Select.ShowDistance, set by WorldPrompt from the
+			-- same figure that shows the plate: what you can read you can press.
+			-- Two radii would mean a plate you can see and cannot use.
+			HoverSound = 10066931761,   -- Roblox first-party "Hover 01", as UIKit uses
+			ClickSound = 10128760939,   -- "Select 01"
+			HoverVolume = 0.3,
+			ClickVolume = 0.5,
+			-- What the prompt plate does under the pointer and on the press. The
+			-- same feel UIKit.feel gives every button in the game, by hand, because
+			-- a BillboardGui's contents are not a GuiButton.
+			HoverGrow = 1.08,
+			PressDrop = 0.93,
+		},
+
+		-- THE SCREEN, and it is NOT a panel. Everything floats on the blurred world
+		-- — no white body, no ring, no moulded lip, no studs. The shell instance is
+		-- still there (it carries the title, the close key and the layout box) but
+		-- its surface is switched off, because a splice happens AT the machine and a
+		-- solid menu in front of it hides the thing you walked over to use.
+		--
+		-- The dim is what keeps the floating controls readable against whatever the
+		-- machine is doing behind them. Light: the blur is already doing most of
+		-- the separating, and at 0.3 this stopped being "transparent" and became a
+		-- dark panel with soft edges.
+		Panel = {
+			Aspect = 1.62,
+			LeftLabel = "STRAND A",
+			RightLabel = "STRAND B",
+			EmptyGlyph = "+",
+			Idle = "Choose two strands to splice.",
+			Ready = "Ready to splice!",
+			Button = "SPLICE",
+			Dim = 0.62,
+			BlurSize = 20,
+		},
+
+		-- THE STRANDS: six animals, each with ITS OWN ICON.
+		--
+		-- They were ViewportFrames of the real rigged models for one revision, which
+		-- is free and unmistakable and also wrong for a picker cell: a lit 3D rig at
+		-- 60px reads as a dark blob, and every one of them needed its own camera.
+		-- Flat art is what a cell that size wants.
+		--
+		-- ALL SIX ARE FREE CREATOR STORE ASSETS, verified here by hand — resolved
+		-- from their store pages (an image served from a store page is a DECAL
+		-- WRAPPER, so the id below is the TEXTURE inside it, not the page) and then
+		-- PreloadAsync'd in this group-owned place: all six Success, no experience
+		-- grant needed. That is the whole reason for using store assets rather than
+		-- uploading a matched set — an upload 403s here until the experience is
+		-- granted access to each id by hand.
+		--
+		-- FIVE OF THE SIX ARE EMOJI, and that is the closest thing to a family this
+		-- place could get for free: same weight, same flat shading, same
+		-- cut-out-on-transparent. Every candidate was rendered at 1:1 ON MID GREY
+		-- before being picked, because roughly half the free "icon" decals in the
+		-- store carry an opaque white box that is invisible against a pale panel and
+		-- obvious against anything else. The ghost is the odd one out — outlined
+		-- cartoon rather than emoji — and stays because no emoji ghost in the store
+		-- came back transparent.
+		Strands = {
+			{ Name = "Chicken DNA",  Rarity = "Common",    Icon = "rbxassetid://83369122551896" },
+			{ Name = "Dog DNA",      Rarity = "Common",    Icon = "rbxassetid://453168269" },
+			{ Name = "Cat DNA",      Rarity = "Uncommon",  Icon = "rbxassetid://4251852174" },
+			{ Name = "Scorpion DNA", Rarity = "Rare",      Icon = "rbxassetid://883464404" },
+			{ Name = "Ghost DNA",    Rarity = "Epic",      Icon = "rbxassetid://132829823221460" },
+			{ Name = "Bigfoot DNA",  Rarity = "Legendary", Icon = "rbxassetid://4754948535" },
+		},
+		-- What a strand with no Icon of its own falls back to.
+		StrandIcon = COIN_S,
+
+		-- THE MACHINE'S OWN SCREEN. There is a 3D-text model on the front of the
+		-- monitor reading "TEXT + TEXT" — eight letter meshes named uni0054 and so
+		-- on, one mesh per glyph, from a 3D-text plugin.
+		--
+		-- IT CANNOT BE RETYPED. The only glyphs in the place are T, E, X and +, so
+		-- there is no D, no N, no A and no digits to spell anything else with. The
+		-- letters are therefore HIDDEN and a SurfaceGui is put on the same bounding
+		-- box part instead, which can say anything and costs nothing.
+		Display = {
+			-- What it reads before anything is chosen, and the thing the player sees
+			-- from across the plot.
+			DefaultLeft = "DNA 1",
+			DefaultRight = "DNA 2",
+			Operator = "+",
+			-- Pixels of SurfaceGui canvas per stud. The part is about 2.2 x 2.6
+			-- studs, so this gives a ~440 x 520 canvas — enough that the type is not
+			-- a blur up close.
+			PixelsPerStud = 200,
+			Colour = Color3.fromRGB(150, 236, 255),
+			-- The name is shortened to its first word on the screen: "Scorpion DNA"
+			-- across a 2-stud monitor is four-point type, and every entry ends in
+			-- "DNA" anyway, so the word that tells them apart is the one that gets
+			-- the room.
+			ShortNames = true,
+		},
+
+		-- THE CUTSCENE. Pressing SPLICE hands the screen over to the machine: the
+		-- menu goes, the camera takes a framing shot, the gravity rig lights up,
+		-- two helices fly in and become one, and the screen whites out.
+		--
+		-- THE GRAVITY RIG is Workspace.Gravity — an invisible 29-stud box sitting
+		-- on the machine carrying 27 particle emitters and a point light. It ships
+		-- switched ON, which is why the machine has always had a column of sparks
+		-- standing in it doing nothing. It is switched OFF at join and only runs
+		-- for the length of a splice, which is what makes it read as an event.
+		--
+		-- Client-side, like everything else here: what one player sees the machine
+		-- do is not yet anybody else's business, and there is no server to make it
+		-- so.
+		Cutscene = {
+			VfxPartName = "Gravity",
+
+			-- The wind-up, cut before its own tail. The asset is 4.03s and its last
+			-- second is a decay that would run underneath the impact sound; stopping
+			-- at 3.03 lands the two back to back instead of overlapping.
+			BuildSound = 101937236820642,
+			BuildCut = 1.0,          -- seconds trimmed off the END
+			BuildVolume = 0.65,
+			-- The payoff, on the frame the two helices become one.
+			FinishSound = 9125661438,
+			FinishVolume = 0.8,
+
+			-- The white-out. In fast, out slow: the flash IS the cut, and a slow
+			-- fade in reads as a fog rolling over rather than as an event.
+			FlashIn = 0.12,
+			FlashHold = 0.16,
+			FlashOut = 0.65,
+
+			-- Where the camera stands, in studs relative to the machine's own
+			-- bounding box centre. Chosen off the place rather than picked: far
+			-- enough out that the whole tank and the monitor are both in frame, and
+			-- above centre so the floor ring of the gravity rig shows.
+			CameraOffset = Vector3.new(0, 5.5, 26),
+			CameraLookLift = 1.5,    -- studs above centre the camera aims
+			CameraEase = 0.8,        -- seconds to glide in, and again to hand back
+
+			-- The two helices fly in from this far either side of the tank, on the
+			-- machine's own left/right axis, and meet at the centre.
+			Spread = 7.5,
+			-- Revolutions each helix turns on the way in. They counter-rotate, so
+			-- the pair reads as two strands winding together rather than as two
+			-- copies of one object sliding.
+			Turns = 2.5,
+			-- Seconds. The whole thing is BuildCut-trimmed sound plus the flash, so
+			-- these add up to the build sound's playable length.
+			Approach = 2.1,
+			Merge = 0.55,
+			-- How long the merged helix is held before the camera hands back.
+			Settle = 0.9,
+
+			-- MORE GOING ON, because a splice that is two objects sliding together
+			-- is not an event. Each of these is cheap and none of them needs art.
+
+			-- THE HELIX IN THE TANK SPINS UP. DnaSpin owns that rotation and reads
+			-- this multiplier off an attribute on the machine, so the wind-up is a
+			-- number here rather than a second copy of the spin loop. Ramped in over
+			-- the approach and released when the cutscene ends.
+			SpinBoost = 9,
+			SpinAttribute = "SpinBoost",
+
+			-- CAMERA SHAKE, in studs of positional jitter at full strength. Ramps
+			-- with the approach and peaks at the merge. Small: this is a machine
+			-- working, not an earthquake, and past about 0.3 it reads as the camera
+			-- being broken rather than the machine being powerful.
+			Shake = 0.16,
+
+			-- THE FOV PUNCH on the merge frame — a fast pull-in and a slower
+			-- release, which is what sells an impact when there is no impact to
+			-- render. Degrees off the camera's own FieldOfView.
+			FovKick = -9,
+			FovIn = 0.12,
+			FovOut = 0.5,
+
+			-- The tank's own light, pulsed up as the two strands close. Uses the
+			-- gravity rig's PointLight rather than adding one: it is already there,
+			-- already aimed and already switched on for the cutscene.
+			LightPeak = 6,
+		},
+	},
+
+	-- WALK-UP TRANSITS. A plate on a piece of the world that moves you somewhere
+	-- else when you click it — the same WorldPrompt widget the DNA machine uses,
+	-- with a teleport behind it instead of a screen.
+	--
+	-- This is the honest version of a portal: the Portals panel is a menu you open
+	-- from anywhere, and that is right for crossing the map, but the mouth of a
+	-- tunnel should be a thing you walk to. The cave's Entry arch is one: it is
+	-- literally the way through to the mine.
+	--
+	-- CLIENT-SIDE, like everything else here: a client owns its own character, so
+	-- PivotTo on it is a real teleport and not a mock. Nothing is granted and
+	-- nothing replicates.
+	Transit = {
+		-- Studs above Pos to release the character, same rule Teleport uses: the
+		-- world is blocky and a landing exactly on a surface intersects it.
+		DropHeight = 6,
+		Places = {
+			{
+				-- Workspace.Entry: a 32x22x20 neon block at the east end of the
+				-- cave (x 272, z -62), which is the cave's mouth toward the mine.
+				-- It is already there and already lit; all it was missing was
+				-- anything telling you it does something.
+				Part = "Entry",
+				ActionText = "Enter",
+				ObjectText = "MINESHAFT",
+				-- The Mineshaft portal's own landing spot, measured the same way:
+				-- where a character actually COMES TO REST after being dropped
+				-- there, read off HumanoidRootPart rather than off the geometry.
+				Pos = Vector3.new(739.5, 17.7, -244),
+				-- Closer than the machine's 140. A tunnel mouth is a thing you walk
+				-- up to, and a plate readable from the far side of the cave would
+				-- be floating in the dark over nothing you can see.
+				ShowDistance = 55,
+				Height = 3.4,
+				Aspect = 3.15,
+				-- The arch is 22 studs tall and the plate sits at its box centre by
+				-- default, which is inside the neon. Lifted clear of the top.
+				Rise = 13,
+			},
+		},
+	},
+
+	-- THE LOADING SCREEN, which replaces Roblox's default one. Lives in
+	-- ReplicatedFirst because that is the only container whose scripts run before
+	-- the rest of the game arrives; anywhere else and the player has already seen
+	-- the world load in behind it.
+	--
+	-- The bar is driven by a REAL count. ContentProvider:PreloadAsync takes a
+	-- per-asset callback, so the fraction is assets actually fetched rather than a
+	-- timer pretending to be progress — which is the thing that makes a fake bar
+	-- obvious the second the connection is slow.
+	--
+	-- WHAT IS PRELOADED: every rbxassetid string anywhere in this table, found by
+	-- walking it. That is deliberate over a hand-kept list, which would rot the
+	-- first time somebody adds a product. Audio is NOT preloaded — the three music
+	-- tracks are 200-320 seconds each and would hold the player at the door for
+	-- something that streams perfectly well on its own.
+	Loading = {
+		Title = "FIND A DNA",
+		Subtitle = "Splice it. Grow it. Hatch it.",
+
+		-- The floor stops the screen flashing past on a warm cache, which reads as
+		-- a glitch rather than as a fast load. The ceiling is the more important
+		-- number: one asset that never resolves must not trap somebody at the door
+		-- forever, so at MaxWait the screen leaves regardless of the count.
+		MinTime = 1.4,
+		MaxWait = 20,
+		FadeTime = 0.45,
+
+		-- Seconds per revolution of the coin above the title. Slow: it is a
+		-- flourish, and a fast spin on a screen somebody stares at reads as
+		-- impatience.
+		SpinPeriod = 3.2,
+
+		-- Rotated while the bar fills. Written to be read in about two seconds
+		-- each, because that is all the time most of them will get.
+		Tips = {
+			"Pets boost every harvest. Equip your best.",
+			"Rarer strands hatch from rarer eggs.",
+			"Codes drop on TikTok " .. TIKTOK .. "!",
+			"The mine runs deeper than it looks.",
+			"Rebirth multiplies everything you have earned.",
+			"Check back daily — day seven is the good one.",
+		},
+		TipEvery = 3.2,
 	},
 
 	-- ZONE MUSIC. One looping track per area, picked from where the character is
@@ -694,11 +1195,27 @@ return {
 			Mineshaft = 135969530798848,
 			Cave = 131824229597484,
 		},
+		-- FIRST MATCH WINS, so a region inside another is listed first: the
+		-- mineshaft plate sits inside the mine cavern and therefore comes before it.
 		Zones = {
 			{ Track = "Mineshaft", Centre = Vector3.new(739.5, 34, -244),
 			  Size = Vector3.new(85, 50, 82) },
+			-- THE MINE CAVERN, not the cave — the box around the rails, the carts
+			-- and the mineshaft. It has carried the "Cave" track since the zones
+			-- were first measured and it keeps it: it is a cavern, and the track
+			-- suits it. The NAME is the only thing that was ever misleading, and
+			-- Teleport.Places records what that cost.
 			{ Track = "Cave", Centre = Vector3.new(783, 43, -298.4),
 			  Size = Vector3.new(241, 88, 277) },
+			-- THE ACTUAL CAVE, which had no zone at all and so played Overworld —
+			-- audible the moment the portal above started landing here instead of
+			-- in the mine. Measured off the place: the 27 torches span x 161..305,
+			-- z -79..65, the floor slab tops out at y -18.2 and raycasts put the
+			-- ceiling between y -1 and 14. The box is that, with a little margin,
+			-- and capped at y 12 so it does not catch anyone walking on the
+			-- plateau above the cave.
+			{ Track = "Cave", Centre = Vector3.new(233, -5, -7),
+			  Size = Vector3.new(160, 34, 156) },
 		},
 		Default = "Overworld",
 
@@ -942,23 +1459,43 @@ return {
 		-- height is DERIVED from how many entries are here, so adding or removing
 		-- one needs no other change.
 		--
-		-- The two Locked "?" placeholders are gone, and so is the Locked handling
-		-- that drew them: a "?" standing in for a padlock this place has no glyph
-		-- for read as missing art rather than as locked content.
+		-- FIVE CATEGORIES, and the rail is no longer inert. Category is what the
+		-- grid switches on: "Pets" is the one with a roster behind it (Inventory.Pets
+		-- below), and the other four draw Empty instead. That is why a SELECTED
+		-- highlight is back after being cut twice — it was cut when every cell did
+		-- nothing and the highlight promised navigation the panel did not have.
+		-- Pressing a cell now genuinely changes what the grid shows, so the
+		-- highlight is describing something true.
 		--
-		-- No cell is drawn as selected either. All six are inert, and a highlight
-		-- on one of them promised navigation the panel does not have.
+		-- ICON DEBT, all five of it, and deliberate. Nothing here is drawn for the
+		-- slot it sits in — every id is borrowed from somewhere else in the game,
+		-- because an upload 403s in this group-owned place until the experience is
+		-- granted access by hand (see the header). They are at least all from the
+		-- branded set, so the rail reads as one object:
+		--   Pets    the Collection tile's paw book — the ONLY paw in the place
+		--   Potions the old rail's flask-ish gem; the nearest thing to a bottle
+		--   DNA     COIN_S, which is literally a helix struck on a coin
+		--   Cars    the HUD CarSlot truck, the same drawing as the tile
+		--   Charms  GEM_M, a trinket standing in for a charm
+		-- Each wants its own glyph; swapping one in is a line here and nothing else.
 		Rail = {
-			{ Name = "Pets",    Icon = "rbxassetid://128442519585600" },
-			{ Name = "Bag",     Icon = "rbxasset://textures/ui/Backpack/Backpack.png" },
-			{ Name = "Potions", Icon = "rbxassetid://743807896" },
-			{ Name = "Index",   Icon = "rbxassetid://8002852553" },
-			-- A coin for a BOOSTS shelf is already a stretch, and was before this:
-			-- the cell has always drawn a coin. COIN_S at least makes it the
-			-- game's own coin. It wants its own glyph when the rail does anything.
-			{ Name = "Boosts",  Icon = COIN_S },
-			{ Name = "Eggs",    Icon = EGG },
+			{ Name = "Pets",    Category = "Pets",    Icon = "rbxassetid://128325335852740" },
+			{ Name = "Potions", Category = "Potions", Icon = "rbxassetid://743807896" },
+			{ Name = "DNA",     Category = "DNA",     Icon = COIN_S },
+			{ Name = "Cars",    Category = "Cars",    Icon = "rbxassetid://88572848097120" },
+			-- GEM_M, the CLUSTER, not GEM_S. The single pale gem sat directly under
+			-- the Potions cell's own pale diamond and the two read as one item
+			-- listed twice; three stones together is a different silhouette at rail
+			-- size, which is the only size that matters here.
+			{ Name = "Charms",  Category = "Charms",  Icon = GEM_M },
 		},
+		-- Which cell the panel opens on, and the one category with content.
+		DefaultCategory = "Pets",
+		-- Drawn over the grid for a category with nothing in it. An empty grid with
+		-- no words on it reads as a panel that failed to load; this says the shelf
+		-- is empty, which is the truth and is not the same thing.
+		EmptyLine = "Nothing here yet!",
+		EmptySub = "%s are coming soon.",
 
 		-- Rarity drives a tile's gradient and nothing else. Reusing the shop's five
 		-- pairs rather than inventing a sixth is what keeps the two panels one family.
